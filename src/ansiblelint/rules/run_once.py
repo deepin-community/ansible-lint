@@ -5,7 +5,6 @@ from __future__ import annotations
 import sys
 from typing import TYPE_CHECKING, Any
 
-from ansiblelint.constants import LINE_NUMBER_KEY
 from ansiblelint.rules import AnsibleLintRule
 
 if TYPE_CHECKING:
@@ -23,6 +22,7 @@ class RunOnce(AnsibleLintRule):
 
     tags = ["idiom"]
     severity = "MEDIUM"
+    version_changed = "6.12.0"
     _ids = {
         "run-once[task]": "Using run_once may behave differently if strategy is set to free.",
         "run-once[play]": "Play uses strategy: free",
@@ -35,16 +35,17 @@ class RunOnce(AnsibleLintRule):
         if not file or file.kind != "playbook" or not data:
             return []
 
-        strategy = data.get("strategy")
+        strategy: Any = data.get("strategy")
         run_once = data.get("run_once", False)
         if (not strategy and not run_once) or strategy != "free":
             return []
+        lineno = getattr(strategy, "_line_number", 1)
         return [
             self.create_matcherror(
                 message="Play uses strategy: free",
                 filename=file,
                 tag=f"{self.id}[play]",
-                lineno=strategy._line_number,  # noqa: SLF001
+                lineno=lineno,
             ),
         ]
 
@@ -65,7 +66,7 @@ class RunOnce(AnsibleLintRule):
                 message="Using run_once may behave differently if strategy is set to free.",
                 filename=file,
                 tag=f"{self.id}[task]",
-                lineno=task[LINE_NUMBER_KEY],
+                lineno=task.line,
             ),
         ]
 

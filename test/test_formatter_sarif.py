@@ -11,6 +11,7 @@ from tempfile import NamedTemporaryFile
 
 import pytest
 
+from ansiblelint.app import get_app
 from ansiblelint.errors import MatchError
 from ansiblelint.file_utils import Lintable
 from ansiblelint.formatters import SarifFormatter
@@ -24,7 +25,7 @@ class TestSarifFormatter:
     rule2 = AnsibleLintRule()
     matches: list[MatchError] = []
     formatter: SarifFormatter | None = None
-    collection = RulesCollection()
+    collection = RulesCollection(app=get_app(offline=True))
     collection.register(rule1)
     collection.register(rule2)
 
@@ -189,7 +190,9 @@ def test_sarif_parsable_ignored() -> None:
 )
 def test_sarif_file(file: str, return_code: int) -> None:
     """Test ability to dump sarif file (--sarif-file)."""
-    with NamedTemporaryFile(mode="w", suffix=".sarif", prefix="output") as output_file:
+    with NamedTemporaryFile(
+        mode="w", suffix=".sarif", prefix="output", encoding="utf-8"
+    ) as output_file:
         cmd = [
             sys.executable,
             "-m",

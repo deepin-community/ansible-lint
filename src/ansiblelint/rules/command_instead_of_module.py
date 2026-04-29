@@ -42,7 +42,7 @@ class CommandsInsteadOfModulesRule(AnsibleLintRule):
     )
     severity = "HIGH"
     tags = ["command-shell", "idiom"]
-    version_added = "historic"
+    version_changed = "24.10.0"
 
     _commands = ["command", "shell"]
     _modules = {
@@ -69,7 +69,7 @@ class CommandsInsteadOfModulesRule(AnsibleLintRule):
     }
 
     _executable_options = {
-        "git": ["branch", "log", "lfs", "rev-parse"],
+        "git": ["branch", "log", "lfs", "rev-parse", "clean"],
         "systemctl": [
             "--version",
             "get-default",

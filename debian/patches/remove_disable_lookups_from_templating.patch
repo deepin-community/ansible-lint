@@ -1,0 +1,27 @@
+Description: Don't pass deprecated disable_lookups to template function
+Author: Lee Garrett <debian@rocketjump.eu>
+Bug: https://github.com/ansible/ansible-lint/issues/4592
+Forwarded: https://github.com/ansible/ansible-lint/pull/4593
+Reviewed-by: Lee Garrett <debian@rocketjump.eu>
+Last-Update: 2025-04-26
+---
+This patch header follows DEP-3: http://dep.debian.net/deps/dep3/
+--- a/src/ansiblelint/utils.py
++++ b/src/ansiblelint/utils.py
+@@ -177,7 +177,7 @@
+     """Render a templated string by mocking missing filters.
+ 
+     In the case of a missing lookup, ansible core does an early exit
+-    when disable_lookup=True but this happens after the jinja2 syntax already passed
++    but this happens after the jinja2 syntax already passed
+     return the original string as if it had been templated.
+ 
+     In the case of a missing filter, extract the missing filter plugin name
+@@ -201,7 +201,6 @@
+     re_valid_filter = re.compile(r"^\w+(\.\w+\.\w+)?$")
+     templar = ansible_templar(basedir=basedir, templatevars=templatevars)
+ 
+-    kwargs["disable_lookups"] = True
+     for _i in range(10):
+         try:
+             if TrustedAsTemplate and not isinstance(varname, TrustedAsTemplate):

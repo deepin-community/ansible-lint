@@ -19,17 +19,17 @@ from unittest.mock import patch
 import ansible.module_utils.basic as mock_ansible_module
 from ansible.module_utils import basic
 
-from ansiblelint.constants import LINE_NUMBER_KEY
 from ansiblelint.rules import AnsibleLintRule, RulesCollection
 from ansiblelint.text import has_jinja
 from ansiblelint.utils import load_plugin
 from ansiblelint.yaml_utils import clean_json
 
 if TYPE_CHECKING:
+    from ansible.plugins.loader import PluginLoadContext
+
     from ansiblelint.errors import MatchError
     from ansiblelint.file_utils import Lintable
     from ansiblelint.utils import Task
-
 
 _logger = logging.getLogger(__name__)
 
@@ -70,13 +70,13 @@ class ValidationPassedError(Exception):
     """Exception to be raised when validation passes."""
 
 
-class CustomAnsibleModule(basic.AnsibleModule):  # type: ignore[misc]
+class CustomAnsibleModule(basic.AnsibleModule):
     """Mock AnsibleModule class."""
 
-    def __init__(self, *args: str, **kwargs: Any) -> None:
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
         """Initialize AnsibleModule mock."""
         kwargs["no_log"] = True
-        super().__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs)  # type: ignore[no-untyped-call]
         raise ValidationPassedError
 
 
@@ -87,11 +87,13 @@ class ArgsRule(AnsibleLintRule):
     severity = "HIGH"
     description = "Check whether tasks are using correct module options."
     tags = ["syntax", "experimental"]
-    version_added = "v6.10.0"
+    version_changed = "6.10.0"
     module_aliases: dict[str, str] = {"block/always/rescue": "block/always/rescue"}
     _ids = {
         "args[module]": description,
     }
+    RE_PATTERN = re.compile(r"(argument|option) '(?P<name>.*)' is of type")
+    RE_VALUE_OF = re.compile(r"value of (?P<name>.*) must be one of:")
 
     def matchtask(
         self,
@@ -106,7 +108,7 @@ class ArgsRule(AnsibleLintRule):
         if module_name in self.module_aliases:
             return []
 
-        loaded_module = load_plugin(module_name)
+        loaded_module: PluginLoadContext = load_plugin(module_name)
 
         # https://github.com/ansible/ansible-lint/issues/3200
         # since "ps1" modules cannot be executed on POSIX platforms, we will
@@ -136,14 +138,21 @@ class ArgsRule(AnsibleLintRule):
             module_args.update(workarounds_inject_map[loaded_module.resolved_fqcn])
         if loaded_module.resolved_fqcn in workarounds_drop_map:
             for key in workarounds_drop_map[loaded_module.resolved_fqcn]:
-                if key in module_args:
-                    del module_args[key]
+                module_args.pop(key, None)
 
         with mock.patch.object(
             mock_ansible_module,
             "AnsibleModule",
             CustomAnsibleModule,
         ):
+            if not loaded_module.plugin_resolved_name:
+                _logger.warning(
+                    "Unable to load module %s at %s:%s for options validation",
+                    module_name,
+                    file.filename if file else None,
+                    task.line,
+                )
+                return []
             spec = importlib.util.spec_from_file_location(
                 name=loaded_module.plugin_resolved_name,
                 location=loaded_module.plugin_resolved_path,
@@ -154,7 +163,7 @@ class ArgsRule(AnsibleLintRule):
                     "Unable to load module %s at %s:%s for options validation",
                     module_name,
                     file.filename,
-                    task[LINE_NUMBER_KEY],
+                    task.line,
                 )
                 return []
             assert spec.loader is not None
@@ -213,7 +222,7 @@ class ArgsRule(AnsibleLintRule):
     def _parse_failed_msg(
         self,
         failed_msg: str,
-        task: dict[str, Any],
+        task: Task,
         module_name: str,
         file: Lintable | None = None,
     ) -> list[MatchError]:
@@ -222,11 +231,10 @@ class ArgsRule(AnsibleLintRule):
         try:
             failed_obj = json.loads(failed_msg)
             error_message = failed_obj["msg"]
-        except json.decoder.JSONDecodeError:
+        except json.decoder.JSONDecodeError:  # pragma: no cover
             error_message = failed_msg
 
-        option_type_check_error = re.search(
-            r"(argument|option) '(?P<name>.*)' is of type",
+        option_type_check_error = self.RE_PATTERN.search(
             error_message,
         )
         if option_type_check_error:
@@ -238,12 +246,11 @@ class ArgsRule(AnsibleLintRule):
                     "Type checking ignored for '%s' option in task '%s' at line %s.",
                     option_key,
                     module_name,
-                    task[LINE_NUMBER_KEY],
+                    task.line,
                 )
                 return results
 
-        value_not_in_choices_error = re.search(
-            r"value of (?P<name>.*) must be one of:",
+        value_not_in_choices_error = self.RE_VALUE_OF.search(
             error_message,
         )
         if value_not_in_choices_error:
@@ -255,14 +262,14 @@ class ArgsRule(AnsibleLintRule):
                     "Value checking ignored for '%s' option in task '%s' at line %s.",
                     choice_key,
                     module_name,
-                    task[LINE_NUMBER_KEY],
+                    task.line,
                 )
                 return results
 
         results.append(
             self.create_matcherror(
                 message=error_message,
-                lineno=task[LINE_NUMBER_KEY],
+                lineno=task.line,
                 tag="args[module]",
                 filename=file,
             ),
@@ -272,7 +279,7 @@ class ArgsRule(AnsibleLintRule):
 
 # testing code to be loaded only with pytest or when executed the rule file
 if "pytest" in sys.modules:
-    import pytest  # noqa: TCH002
+    import pytest  # noqa: TC002
 
     from ansiblelint.runner import Runner  # pylint: disable=ungrouped-imports
 
@@ -282,13 +289,26 @@ if "pytest" in sys.modules:
         results = Runner(success, rules=default_rules_collection).run()
         assert len(results) == 5
         assert results[0].tag == "args[module]"
-        assert "missing required arguments" in results[0].message
+        # First part of regex is for ansible-core up to 2.18, second part is for ansible-core 2.19+
+        assert re.match(
+            r"(missing required arguments|Unsupported parameters for \(basic.py\) module: foo)",
+            results[0].message,
+        )
         assert results[1].tag == "args[module]"
-        assert "missing parameter(s) required by " in results[1].message
+        assert re.match(
+            r"(missing parameter\(s\) required by |Unsupported parameters for \(basic.py\) module: foo. Supported parameters include: fact_path)",
+            results[1].message,
+        )
         assert results[2].tag == "args[module]"
-        assert "Unsupported parameters for" in results[2].message
+        assert re.match(
+            r"(Unsupported parameters for|missing parameter\(s\) required by 'enabled': name)",
+            results[2].message,
+        )
         assert results[3].tag == "args[module]"
-        assert "Unsupported parameters for" in results[3].message
+        assert re.match(
+            r"(Unsupported parameters for|missing required arguments: repo)",
+            results[3].message,
+        )
         assert results[4].tag == "args[module]"
         assert "value of state must be one of" in results[4].message
 

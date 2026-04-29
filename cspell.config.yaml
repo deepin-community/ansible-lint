@@ -9,6 +9,8 @@ dictionaries:
   - bash
   - words
   - python
+  - python-common
+enabled: true
 ignorePaths:
   - cspell.config.yaml
   # The requirements file
@@ -20,3 +22,4 @@ ignorePaths:
   - src/ansiblelint/schemas/*.json
   # Other
   - "*.svg"
+  - ".vscode/**"

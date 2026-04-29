@@ -1,11 +1,16 @@
-Description: Remove version check at runtime
-Author: Samuel Henrique <samueloph@debian.org>
+From: Samuel Henrique <samueloph@debian.org>
+Date: Sun, 6 Apr 2025 15:10:41 +0100
+Subject: Remove version check at runtime
+
 Forwarded: not-needed
-Index: ansible-lint/src/ansiblelint/config.py
-===================================================================
---- ansible-lint.orig/src/ansiblelint/config.py
-+++ ansible-lint/src/ansiblelint/config.py
-@@ -297,56 +297,5 @@ def get_deps_versions() -> dict[str, Ver
+---
+ src/ansiblelint/config.py | 55 ++---------------------------------------------
+ test/test_main.py         |  2 +-
+ 2 files changed, 3 insertions(+), 54 deletions(-)
+
+--- a/src/ansiblelint/config.py
++++ b/src/ansiblelint/config.py
+@@ -282,56 +282,5 @@
  
  
  def get_version_warning() -> str:
@@ -58,19 +63,17 @@ Index: ansible-lint/src/ansiblelint/config.py
 -        if current_version > new_version:
 -            msg = "[dim]You are using a pre-release version of ansible-lint.[/]"
 -        elif current_version < new_version:
--            msg = f"""[warning]A new release of ansible-lint is available: [red]{current_version}[/] → [green][link={html_url}]{new_version}[/][/][/]"""
+-            msg = f"""[warning]A new release of ansible-lint is available: [warning]{current_version}[/] → [success][link={html_url}]{new_version}[/link][/][/]"""
 -            msg += f" Upgrade by running: [info]{pip}[/]"
 -
 -    return msg
 +    """Patched on Debian to not download release information from third parties"""
 +    return ""
-Index: ansible-lint/test/test_main.py
-===================================================================
---- ansible-lint.orig/test/test_main.py
-+++ ansible-lint/test/test_main.py
-@@ -52,7 +52,7 @@ def test_call_from_outside_venv(expected
+--- a/test/test_main.py
++++ b/test/test_main.py
+@@ -60,7 +60,7 @@
      warning_found = "PATH altered to include" in proc.stderr
-     assert warning_found is expected_warning
+     assert warning_found is in_path
  
 -
 +@pytest.mark.skip(reason="This functionality is disabled on Debian")

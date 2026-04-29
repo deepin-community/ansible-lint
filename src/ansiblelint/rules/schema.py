@@ -7,7 +7,6 @@ import re
 import sys
 from typing import TYPE_CHECKING, Any
 
-from ansiblelint.errors import MatchError
 from ansiblelint.file_utils import Lintable
 from ansiblelint.rules import AnsibleLintRule
 from ansiblelint.schemas.__main__ import JSON_SCHEMAS
@@ -15,7 +14,10 @@ from ansiblelint.schemas.main import validate_file_schema
 from ansiblelint.text import has_jinja
 
 if TYPE_CHECKING:
+    from collections.abc import MutableMapping
+
     from ansiblelint.config import Options
+    from ansiblelint.errors import MatchError
     from ansiblelint.utils import Task
 
 
@@ -60,7 +62,7 @@ class ValidateSchemaRule(AnsibleLintRule):
     id = "schema"
     severity = "VERY_HIGH"
     tags = ["core"]
-    version_added = "v6.1.0"
+    version_changed = "6.1.0"
     _ids = {
         "schema[ansible-lint-config]": "",
         "schema[ansible-navigator-config]": "",
@@ -109,24 +111,24 @@ class ValidateSchemaRule(AnsibleLintRule):
 
     def _get_field_matches(
         self,
-        file: Lintable,
-        data: dict[str, Any],
+        file: Lintable | None,
+        data: MutableMapping[str, Any],
     ) -> list[MatchError]:
         """Retrieve all matches related to fields for the given data block."""
         results = []
+        kind = "tasks" if not file else file.kind
         for key, values in self.field_checks.items():
             if key in data:
                 plugin_value = data[key]
                 if not has_jinja(plugin_value) and plugin_value not in values:
                     msg = f"'{key}' must be one of the currently available values: {', '.join(values)}"
                     results.append(
-                        MatchError(
+                        self.create_matcherror(
                             message=msg,
-                            lineno=data.get("__line__", 1),
-                            lintable=file,
-                            rule=self,
+                            data=plugin_value,
+                            filename=file,
                             details=ValidateSchemaRule.description,
-                            tag=f"schema[{file.kind}]",
+                            tag=f"schema[{kind}]",
                         ),
                     )
         return results
@@ -140,7 +142,7 @@ class ValidateSchemaRule(AnsibleLintRule):
         if not file:
             file = Lintable("", kind="tasks")
 
-        if file.failed():
+        if file and file.failed():
             return results
 
         results.extend(self._get_field_matches(file=file, data=task.raw_task))
@@ -149,10 +151,9 @@ class ValidateSchemaRule(AnsibleLintRule):
                 msg = pre_checks["task"][key]["msg"]
                 tag = pre_checks["task"][key]["tag"]
                 results.append(
-                    MatchError(
+                    self.create_matcherror(
                         message=msg,
-                        lintable=file,
-                        rule=self,
+                        filename=file,
                         details=ValidateSchemaRule.description,
                         tag=f"schema[{tag}]",
                     ),
@@ -178,10 +179,9 @@ class ValidateSchemaRule(AnsibleLintRule):
                 return []
 
             result.append(
-                MatchError(
+                self.create_matcherror(
                     message=error,
-                    lintable=file,
-                    rule=self,
+                    filename=file,
                     details=ValidateSchemaRule.description,
                     tag=f"schema[{file.kind}]",
                 ),

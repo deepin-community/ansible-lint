@@ -6,23 +6,23 @@ import logging
 import os
 import re
 import sys
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, NamedTuple
+from typing import TYPE_CHECKING, NamedTuple
 
 import black
 import jinja2
 from ansible.errors import AnsibleError, AnsibleFilterError, AnsibleParserError
-from ansible.parsing.yaml.objects import AnsibleUnicode
 from jinja2.exceptions import TemplateSyntaxError
 
-from ansiblelint.constants import LINE_NUMBER_KEY
 from ansiblelint.errors import RuleMatchTransformMeta
 from ansiblelint.file_utils import Lintable
 from ansiblelint.rules import AnsibleLintRule, TransformMixin
 from ansiblelint.runner import get_matches
 from ansiblelint.skip_utils import get_rule_skips_from_line
 from ansiblelint.text import has_jinja
+from ansiblelint.types import AnsibleTemplateSyntaxError
 from ansiblelint.utils import (  # type: ignore[attr-defined]
     Templar,
     parse_yaml_from_file,
@@ -65,6 +65,8 @@ ignored_re = re.compile(
             r"Unrecognized type <<class 'ansible.template.AnsibleUndefined'>> for (.*) filter <value>$",
             # https://github.com/ansible/ansible-lint/issues/3155
             r"^The '(.*)' test expects a dictionary$",
+            # https://github.com/ansible/ansible-lint/issues/4338
+            r"An unhandled exception occurred while templating (.*). Error was a <class 'ansible.errors.AnsibleFilterError'>, original message: The (.*) test expects a dictionary$",
         ],
     ),
     flags=re.MULTILINE | re.DOTALL,
@@ -97,7 +99,7 @@ class JinjaRule(AnsibleLintRule, TransformMixin):
     id = "jinja"
     severity = "LOW"
     tags = ["formatting"]
-    version_added = "v6.5.0"
+    version_changed = "6.5.0"
     _ansible_error_re = re.compile(
         (
             r"^(?P<error>.*): (?P<detail>.*)\. String: (?P<string>.*)$"
@@ -186,14 +188,27 @@ class JinjaRule(AnsibleLintRule, TransformMixin):
                         elif re.match(r"^lookup plugin (.*) not found$", exc.message):
                             # lookup plugin 'template' not found
                             bypass = True
+                        elif (
+                            exc.message == "A template was resolved to an Omit scalar."
+                            or (
+                                isinstance(orig_exc, AnsibleTemplateSyntaxError)
+                                and re.match(
+                                    r"^Syntax error in template: No filter named '.*'.",
+                                    exc.message,
+                                )
+                            )
+                        ):
+                            bypass = True
 
                         # AnsibleError: template error while templating string: expected token ':', got '}'. String: {{ {{ '1' }} }}
                         # AnsibleError: template error while templating string: unable to locate collection ansible.netcommon. String: Foo {{ buildset_registry.host | ipwrap }}
                         if not bypass:
+                            lineno = task.get_error_line([*path, key])
                             result.append(
                                 self.create_matcherror(
                                     message=str(exc),
-                                    lineno=_get_error_line(task, path),
+                                    lineno=lineno,
+                                    data=v,
                                     filename=file,
                                     tag=f"{self.id}[invalid]",
                                 ),
@@ -205,6 +220,7 @@ class JinjaRule(AnsibleLintRule, TransformMixin):
                         lintable=file,
                     )
                     if reformatted != v:
+                        lineno = task.get_error_line([*path, key])
                         result.append(
                             self.create_matcherror(
                                 message=self._msg(
@@ -212,7 +228,8 @@ class JinjaRule(AnsibleLintRule, TransformMixin):
                                     value=v,
                                     reformatted=reformatted,
                                 ),
-                                lineno=_get_error_line(task, path),
+                                lineno=lineno,
+                                data=v,
                                 details=details,
                                 filename=file,
                                 tag=f"{self.id}[{tag}]",
@@ -231,14 +248,15 @@ class JinjaRule(AnsibleLintRule, TransformMixin):
 
     def matchyaml(self, file: Lintable) -> list[MatchError]:
         """Return matches for variables defined in vars files."""
-        data: dict[str, Any] = {}
         raw_results: list[MatchError] = []
         results: list[MatchError] = []
 
         if str(file.kind) == "vars":
             data = parse_yaml_from_file(str(file.path))
+            if not isinstance(data, Mapping):
+                return results
             for key, v, _path in nested_items_path(data):
-                if isinstance(v, AnsibleUnicode):
+                if isinstance(v, str):
                     reformatted, details, tag = self.check_whitespace(
                         v,
                         key=key,
@@ -252,7 +270,7 @@ class JinjaRule(AnsibleLintRule, TransformMixin):
                                     value=v,
                                     reformatted=reformatted,
                                 ),
-                                lineno=v.ansible_pos[1],
+                                data=v,
                                 details=details,
                                 filename=file,
                                 tag=f"{self.id}[{tag}]",
@@ -403,8 +421,7 @@ class JinjaRule(AnsibleLintRule, TransformMixin):
 
         except jinja2.exceptions.TemplateSyntaxError as exc:
             return "", str(exc.message), "invalid"
-        # pylint: disable=c-extension-no-member
-        except (NotImplementedError, black.parsing.InvalidInput) as exc:
+        except (NotImplementedError, ValueError) as exc:
             # black is not able to recognize all valid jinja2 templates, so we
             # just ignore InvalidInput errors.
             # NotImplementedError is raised internally for expressions with
@@ -505,31 +522,23 @@ if "pytest" in sys.modules:
     from ansiblelint.runner import Runner
     from ansiblelint.transformer import Transformer
 
-    @pytest.fixture(name="error_expected_lines")
-    def fixture_error_expected_lines() -> list[int]:
-        """Return list of expected error lines."""
-        return [33, 36, 39, 42, 45, 48, 74]
-
-    # 21 68
-    @pytest.fixture(name="lint_error_lines")
-    def fixture_lint_error_lines() -> list[int]:
-        """Get VarHasSpacesRules linting results on test_playbook."""
-        collection = RulesCollection()
-        collection.register(JinjaRule())
-        lintable = Lintable("examples/playbooks/jinja-spacing.yml")
-        results = Runner(lintable, rules=collection).run()
-        return [item.lineno for item in results]
-
-    def test_jinja_spacing_playbook(
-        error_expected_lines: list[int],
-        lint_error_lines: list[int],
-    ) -> None:
+    def test_jinja_spacing_playbook() -> None:
         """Ensure that expected error lines are matching found linting error lines."""
         # list unexpected error lines or non-matching error lines
-        error_lines_difference = list(
-            set(error_expected_lines).symmetric_difference(set(lint_error_lines)),
-        )
-        assert len(error_lines_difference) == 0
+        lineno_list = [33, 36, 39, 42, 45, 48, 74]
+        lintable = Lintable("examples/playbooks/jinja-spacing.yml")
+        collection = RulesCollection()
+        collection.register(JinjaRule())
+        results = Runner(lintable, rules=collection).run()
+        assert len(results) == len(lineno_list)
+        for index, result in enumerate(results):
+            assert result.tag == "jinja[spacing]"
+            assert result.lineno == lineno_list[index]
+
+        # error_lines_difference = list(
+        #     set(error_expected_lines).symmetric_difference(set(lint_error_lines)),
+        # )
+        # assert len(error_lines_difference) == 0
 
     def test_jinja_spacing_vars() -> None:
         """Ensure that expected error details are matching found linting error details."""
@@ -835,7 +844,7 @@ if "pytest" in sys.modules:
         assert errs[0].lineno == 9
         assert errs[1].tag == "jinja[invalid]"
         assert errs[1].rule.id == "jinja"
-        assert errs[1].lineno == 9
+        assert errs[1].lineno in [9, 10]  # 2.19 has better line identification
 
     def test_jinja_valid() -> None:
         """Tests our ability to parse jinja, even when variables may not be defined."""
@@ -884,10 +893,10 @@ if "pytest" in sys.modules:
             data = args[1]
 
             if data != "{{ 12 | random(seed=inventory_hostname) }}":
-                return do_template(*args, **kwargs)
+                return do_template(*args, **kwargs)  # type: ignore[no-untyped-call]
 
             msg = "Unexpected templating type error occurred on (foo): bar"
-            raise AnsibleError(msg)
+            raise AnsibleError(str(msg))  # type: ignore[no-untyped-call]
 
         do_template = Templar.do_template
         collection = RulesCollection()
@@ -896,17 +905,3 @@ if "pytest" in sys.modules:
         with mock.patch.object(Templar, "do_template", _do_template):
             results = Runner(lintable, rules=collection).run()
             assert len(results) == 0
-
-
-def _get_error_line(task: dict[str, Any], path: list[str | int]) -> int:
-    """Return error line number."""
-    line = task[LINE_NUMBER_KEY]
-    ctx = task
-    for _ in path:
-        ctx = ctx[_]
-        if LINE_NUMBER_KEY in ctx:
-            line = ctx[LINE_NUMBER_KEY]
-    if not isinstance(line, int):
-        msg = "Line number is not an integer"
-        raise TypeError(msg)
-    return line

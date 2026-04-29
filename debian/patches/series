@@ -1,2 +1,6 @@
 remove_version_check.patch
 deb-testing.patch
+remove_disable_lookups_from_templating.patch
+remove_importlib_metadata.patch
+partially-disable-test_normalize_complex_command.patch
+disable-tests-failing-on-plus.patch

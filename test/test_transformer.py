@@ -9,21 +9,22 @@ import shutil
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from unittest import mock
+from unittest.mock import Mock
 
 import pytest
 
 import ansiblelint.__main__ as main
 from ansiblelint.app import App
+from ansiblelint.config import Options
+from ansiblelint.errors import MatchError
 from ansiblelint.file_utils import Lintable
-from ansiblelint.rules import TransformMixin
+from ansiblelint.rules import AnsibleLintRule, TransformMixin
 
 # noinspection PyProtectedMember
 from ansiblelint.runner import LintResult, get_matches
 from ansiblelint.transformer import Transformer
 
 if TYPE_CHECKING:
-    from ansiblelint.config import Options
-    from ansiblelint.errors import MatchError
     from ansiblelint.rules import RulesCollection
 
 
@@ -204,6 +205,13 @@ def fixture_runner_result(
             True,
             id="4114",
         ),
+        pytest.param(
+            "examples/playbooks/transform-name.yml",
+            3,
+            True,
+            True,
+            id="name-capitalize",
+        ),
     ),
 )
 @mock.patch.dict(os.environ, {"ANSIBLE_LINT_WRITE_TMP": "1"}, clear=True)
@@ -295,6 +303,74 @@ def test_effective_write_set(write_list: list[str], expected: set[str]) -> None:
     """Make sure effective_write_set handles all/none keywords correctly."""
     actual = Transformer.effective_write_set(write_list)
     assert actual == expected
+
+
+@pytest.mark.parametrize(
+    ("write_list", "write_exclude_list", "rules"),
+    (
+        (
+            ["all"],
+            ["none"],
+            [("rule-id", True), ("rule1", True), ("rule-03", True)],
+        ),
+        (
+            ["all"],
+            ["all"],
+            [("rule-id", False), ("rule1", False), ("rule-03", False)],
+        ),
+        (
+            ["none"],
+            ["none"],
+            [("rule-id", False), ("rule1", False), ("rule-03", False)],
+        ),
+        (
+            ["none"],
+            ["all"],
+            [("rule-id", False), ("rule1", False), ("rule-03", False)],
+        ),
+        (
+            ["rule-id"],
+            ["none"],
+            [("rule-id", True), ("rule1", False), ("rule-03", False)],
+        ),
+        (
+            ["rule-id"],
+            ["all"],
+            [("rule-id", False), ("rule1", False), ("rule-03", False)],
+        ),
+    ),
+)
+def test_write_exclude_list(
+    write_list: list[str],
+    write_exclude_list: list[str],
+    rules: list[tuple[str, bool]],
+) -> None:
+    """Test item matching write_exclude_list are excluded correctly."""
+    matches: list[MatchError] = []
+
+    class TestRule(AnsibleLintRule, TransformMixin):
+        """Dummy class for transformable rules."""
+
+    for rule_id, transform_expected in rules:
+        rule = Mock(spec=TestRule)
+        rule.id = rule_id
+        rule.tags = []
+        rule.transform_expected = transform_expected
+        match = MatchError(rule=rule)
+        matches.append(match)
+
+    transformer = Transformer(
+        LintResult(matches, set()),
+        Options(write_list=write_list, write_exclude_list=write_exclude_list),
+    )
+    # noinspection PyTypeChecker
+    Transformer._do_transforms(transformer, Mock(), "", False, matches)  # noqa: SLF001
+
+    for match in matches:
+        if match.rule.transform_expected:  # type: ignore[attr-defined]
+            match.rule.transform.assert_called()  # type: ignore[attr-defined]
+        else:
+            match.rule.transform.assert_not_called()  # type: ignore[attr-defined]
 
 
 def test_pruned_err_after_fix(monkeypatch: pytest.MonkeyPatch, tmpdir: Path) -> None:
@@ -439,7 +515,7 @@ def test_transform_na(
     result = test_result[0]
     options = test_result[1]
 
-    _isinstance = builtins.isinstance
+    isinstance_ = builtins.isinstance
     called = False
 
     def mp_isinstance(t_object: Any, classinfo: type) -> bool:
@@ -447,7 +523,7 @@ def test_transform_na(
             nonlocal called
             called = True
             return False
-        return _isinstance(t_object, classinfo)
+        return isinstance_(t_object, classinfo)
 
     monkeypatch.setattr(builtins, "isinstance", mp_isinstance)
 

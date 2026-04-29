@@ -6,6 +6,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from collections.abc import Mapping
 from http.client import RemoteDisconnected
 from pathlib import Path
 
@@ -14,35 +15,42 @@ from pytest_mock import MockerFixture
 
 from ansiblelint.config import get_version_warning, options
 from ansiblelint.constants import RC
+from ansiblelint.loaders import yaml_load_safe
 
 
 @pytest.mark.parametrize(
-    ("expected_warning"),
+    ("in_path"),
     (False, True),
-    ids=("normal", "isolated"),
+    ids=("in", "missing"),
 )
-def test_call_from_outside_venv(expected_warning: bool) -> None:
+def test_call_from_outside_venv(in_path: bool) -> None:
     """Asserts ability to be called w/ or w/o venv activation."""
     git_location = shutil.which("git")
     if not git_location:
         pytest.fail("git not found")
     git_path = Path(git_location).parent
+    py_path = Path(sys.executable).parent.resolve().as_posix()
 
-    if expected_warning:
-        env = {"HOME": str(Path.home()), "PATH": str(git_path)}
+    env = os.environ.copy()
+    env["VIRTUAL_ENV"] = ""
+    env["NO_COLOR"] = "1"
+    if in_path:
+        # VIRTUAL_ENV obliterated here to emulate call from outside a virtual environment
+        env["HOME"] = Path.home().as_posix()
+        env["PATH"] = git_path.as_posix()
     else:
-        env = os.environ.copy()
+        if py_path not in env["PATH"]:
+            env["PATH"] = f"{py_path}:{env['PATH']}"
 
     for v in ("COVERAGE_FILE", "COVERAGE_PROCESS_START"):
         if v in os.environ:
             env[v] = os.environ[v]
 
-    py_path = Path(sys.executable).parent
     # Passing custom env prevents the process from inheriting PATH or other
     # environment variables from the current process, so we emulate being
     # called from outside the venv.
     proc = subprocess.run(
-        [str(py_path / "ansible-lint"), "--version"],
+        [f"{py_path}/ansible-lint", "--version"],
         check=False,
         capture_output=True,
         text=True,
@@ -50,7 +58,7 @@ def test_call_from_outside_venv(expected_warning: bool) -> None:
     )
     assert proc.returncode == 0, proc
     warning_found = "PATH altered to include" in proc.stderr
-    assert warning_found is expected_warning
+    assert warning_found is in_path
 
 
 @pytest.mark.parametrize(
@@ -91,7 +99,7 @@ def test_get_version_warning(
 def test_get_version_warning_no_pip(mocker: MockerFixture) -> None:
     """Test that we do not display any message if install method is not pip."""
     mocker.patch("ansiblelint.config.guess_install_method", return_value="")
-    assert get_version_warning() == ""
+    assert get_version_warning() == ""  # noqa: PLC1901
 
 
 def test_get_version_warning_remote_disconnect(mocker: MockerFixture) -> None:
@@ -109,7 +117,7 @@ def test_get_version_warning_offline(mocker: MockerFixture) -> None:
         # ensures a real cache_file is not loaded
         mocker.patch("ansiblelint.config.CACHE_DIR", Path(temporary_directory))
         options.offline = True
-        assert get_version_warning() == ""
+        assert get_version_warning() == ""  # noqa: PLC1901
 
 
 @pytest.mark.parametrize(
@@ -145,7 +153,29 @@ def test_broken_ansible_cfg() -> None:
         cwd="test/fixtures/broken-ansible.cfg",
     )
     assert proc.returncode == RC.INVALID_CONFIG, proc
-    assert (
-        "Invalid type for configuration option setting: CACHE_PLUGIN_TIMEOUT"
-        in proc.stderr
+    # 2.19 had different errors
+    assert any(
+        x in proc.stderr
+        for x in (
+            "Invalid type for configuration option setting: CACHE_PLUGIN_TIMEOUT",
+            "has an invalid value: Invalid type provided for 'int': 'invalid-value'",
+        )
     )
+
+
+def test_list_tags() -> None:
+    """Asserts that we can list tags and that the output is parseable yaml."""
+    result = subprocess.run(
+        ["ansible-lint", "--list-tags"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0
+    data = yaml_load_safe(result.stdout)
+    assert isinstance(data, Mapping)
+    for key, value in data.items():
+        assert isinstance(key, str)
+        assert isinstance(value, list)
+        for item in value:
+            assert isinstance(item, str)

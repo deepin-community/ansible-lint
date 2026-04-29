@@ -111,7 +111,7 @@ on:
 jobs:
   build:
     name: Ansible Lint # Naming the build is important to use it as a status check
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - name: Run ansible-lint
@@ -146,3 +146,22 @@ ansible-lint action you should create a file similar to
 [dependabot]: https://docs.github.com/en/code-security/dependabot
 [.github/dependabot.yml]:
   https://github.com/ansible/ansible-lint/blob/main/.github/dependabot.yml#L13-L19
+
+### Installing roles and collections from private repositories
+
+To install roles and collections from private repositories, you can:
+
+1. Create an [access token](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens#about-personal-access-tokens)
+1. Add the token as an [deploy secret](https://docs.github.com/en/actions/security-for-github-actions/security-guides/using-secrets-in-github-actions#creating-secrets-for-a-repository)
+1. Add the following step before the ansible-lint step.
+<!-- {% raw %} -->
+```yaml
+- name: Prepare Git for Github
+  shell: bash
+  run: |
+    git config --global url."https://${{ secrets.ANSIBLE_LINT_TOKEN }}@github.com".insteadOf "https://github.com"
+
+```
+<!--
+# spell-checker:ignore endraw
+{% endraw %} -->

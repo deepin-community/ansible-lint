@@ -75,13 +75,6 @@ for it does check these. If for some reason, you do not want to follow our
 defaults, you can create a `.yamllint` file in your project and this will take
 precedence over our defaults.
 
-## Additional Information for Multiline Strings
-
-Adhering to yaml[line-length] rule, for writing multiline strings we recommend
-using Block Style Indicator: literal style indicated by a pipe (|) or folded
-style indicated by a right angle bracket (>), instead of escaping the newlines
-with backslashes. Reference [guide] for writing multiple line strings in yaml.
-
 ## Problematic code
 
 ```yaml
@@ -101,6 +94,13 @@ foo2: "0o777" # <-- Explicitly quoting octal is less risky.
 bar: ... # Correct comment indentation.
 ```
 
+## Additional Information for Multiline Strings
+
+Adhering to yaml[line-length] rule, for writing multiline strings we recommend
+using Block Style Indicator: literal style indicated by a pipe (|) or folded
+style indicated by a right angle bracket (>), instead of escaping the newlines
+with backslashes. Reference [guide] for writing multiple line strings in yaml.
+
 ## Yamllint configuration
 
 If you decide to add a custom yamllint config to your project, ansible-lint
@@ -108,7 +108,7 @@ might refuse to run if it detects that some of your options are incompatible and
 ask you to correct them. When this happens, you will see a message like the one
 below:
 
-```
+```shell
 CRITICAL Found incompatible custom yamllint configuration (.yamllint), please either remove the file or edit it to comply with:
   - comments.min-spaces-from-content must be 1
   - braces.min-spaces-inside must be 0

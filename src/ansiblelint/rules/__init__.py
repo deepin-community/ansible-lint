@@ -26,7 +26,7 @@ from ansiblelint._internal.rules import (
 from ansiblelint.app import App, get_app
 from ansiblelint.config import PROFILES, Options
 from ansiblelint.config import options as default_options
-from ansiblelint.constants import LINE_NUMBER_KEY, RULE_DOC_URL, SKIPPED_RULES_KEY
+from ansiblelint.constants import RULE_DOC_URL, SKIPPED_RULES_KEY
 from ansiblelint.errors import MatchError
 from ansiblelint.file_utils import Lintable, expand_paths_vars
 
@@ -46,6 +46,9 @@ match_types = {
     "matchplay": "play",  # called by matchyaml
     "matchdir": "dir",
 }
+RE_JINJA_EXPRESSION = re.compile(r"{{.+?}}")
+RE_JINJA_STATEMENT = re.compile(r"{%.+?%}")
+RE_JINJA_COMMENT = re.compile(r"{#.+?#}")
 
 
 class AnsibleLintRule(BaseRule):
@@ -63,9 +66,9 @@ class AnsibleLintRule(BaseRule):
     @staticmethod
     def unjinja(text: str) -> str:
         """Remove jinja2 bits from a string."""
-        text = re.sub(r"{{.+?}}", "JINJA_EXPRESSION", text)
-        text = re.sub(r"{%.+?%}", "JINJA_STATEMENT", text)
-        text = re.sub(r"{#.+?#}", "JINJA_COMMENT", text)
+        text = RE_JINJA_EXPRESSION.sub("JINJA_EXPRESSION", text)
+        text = RE_JINJA_STATEMENT.sub("JINJA_STATEMENT", text)
+        text = RE_JINJA_COMMENT.sub("JINJA_COMMENT", text)
         return text
 
     # pylint: disable=too-many-arguments,too-many-positional-arguments
@@ -73,15 +76,22 @@ class AnsibleLintRule(BaseRule):
         self,
         message: str = "",
         lineno: int = 1,
+        column: int | None = None,
         details: str = "",
         filename: Lintable | None = None,
         tag: str = "",
         transform_meta: RuleMatchTransformMeta | None = None,
+        data: Any | None = None,
     ) -> MatchError:
         """Instantiate a new MatchError."""
+        if data is not None and lineno == 1 and column is None:
+            lineno, column = ansiblelint.yaml_utils.get_line_column(
+                data, default_line=lineno
+            )
         match = MatchError(
             message=message,
             lineno=lineno,
+            column=column,
             details=details,
             lintable=filename or Lintable(""),
             rule=copy.copy(self),
@@ -108,9 +118,9 @@ class AnsibleLintRule(BaseRule):
     ) -> None:
         match.task = task
         if not match.details:
-            match.details = "Task/Handler: " + ansiblelint.utils.task_to_str(task)
+            match.details = "Task/Handler: " + str(task)
 
-        match.lineno = max(match.lineno, task[LINE_NUMBER_KEY])
+        match.lineno = max(match.lineno, task.line)
 
     def matchlines(self, file: Lintable) -> list[MatchError]:
         matches: list[MatchError] = []
@@ -204,7 +214,7 @@ class AnsibleLintRule(BaseRule):
                     message = result
                 match = self.create_matcherror(
                     message=message,
-                    lineno=task.normalized_task[LINE_NUMBER_KEY],
+                    lineno=task.line,
                     filename=file,
                 )
 
@@ -224,7 +234,7 @@ class AnsibleLintRule(BaseRule):
         if isinstance(yaml, str):
             if yaml.startswith("$ANSIBLE_VAULT"):
                 return []
-            if self._collection is None:
+            if self._collection is None:  # pragma: no cover
                 msg = f"Rule {self.id} was not added to a collection."
                 raise RuntimeError(msg)
             return [
@@ -241,8 +251,8 @@ class AnsibleLintRule(BaseRule):
             yaml = [yaml]
 
         for play in yaml:
-            # Bug #849
-            if play is None:
+            # Bug #849 and #4492
+            if play is None or not hasattr(play, "get"):
                 continue
 
             if self.id in play.get(SKIPPED_RULES_KEY, ()):
@@ -327,9 +337,9 @@ class TransformMixin:
             # The cast() calls tell mypy what types we expect.
             # Essentially this does:
             if isinstance(segment, str):
-                target = cast(MutableMapping[str, Any], target)[segment]
+                target = cast("MutableMapping[str, Any]", target)[segment]
             elif isinstance(segment, int):
-                target = cast(MutableSequence[Any], target)[segment]
+                target = cast("MutableSequence[Any]", target)[segment]
         return target
 
 
@@ -396,7 +406,10 @@ class RulesCollection:
         else:
             self.options = options
         self.profile = []
-        self.app = app or get_app(cached=True)
+        # app should be defined on normal run logic, but for testing we might
+        # not pass it, and in this case we assume offline mode for performance
+        # reasons.
+        self.app = app or get_app(offline=True)
 
         if profile_name:
             self.profile = PROFILES[profile_name]
@@ -464,10 +477,6 @@ class RulesCollection:
         msg = f"Rule {item} is not present inside this collection."
         raise ValueError(msg)
 
-    def extend(self, more: list[AnsibleLintRule]) -> None:
-        """Combine rules."""
-        self.rules.extend(more)
-
     def run(
         self,
         file: Lintable,
@@ -522,19 +531,12 @@ class RulesCollection:
 
         return matches
 
-    def __repr__(self) -> str:
-        """Return a RulesCollection instance representation."""
-        return "\n".join(
-            [rule.verbose() for rule in sorted(self.rules, key=lambda x: x.id)],
-        )
-
     def known_tags(self) -> list[str]:
         """Return a list of known tags, without returning no sub-tags."""
         tags = set()
         for rule in self.rules:
             tags.add(rule.id)
-            for tag in rule.tags:
-                tags.add(tag)
+            tags.update(rule.tags)
         return sorted(tags)
 
     def list_tags(self) -> str:
@@ -559,7 +561,7 @@ class RulesCollection:
         tags = defaultdict(list)
         for rule in self.rules:
             # Fail early if a rule does not have any of our required tags
-            if not set(rule.tags).intersection(tag_desc.keys()):
+            if not set(rule.tags).intersection(tag_desc.keys()):  # pragma: no cover
                 msg = f"Rule {rule} does not have any of the required tags: {', '.join(tag_desc.keys())}"
                 raise RuntimeError(msg)
             for tag in rule.tags:

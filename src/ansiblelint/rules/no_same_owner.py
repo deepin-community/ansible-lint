@@ -26,6 +26,8 @@ should not be preserved when transferring files between them.
 """
     severity = "LOW"
     tags = ["opt-in"]
+    version_changed = "6.4.0"
+    RE_ARCHIVES = re.compile(r"^.*\.tar(\.(gz|bz2|xz))?$")
 
     def matchtask(
         self,
@@ -58,14 +60,11 @@ should not be preserved when transferring files between them.
             return True
         return False
 
-    @staticmethod
-    def handle_unarchive(task: Any, action: dict[str, Any]) -> bool:
+    def handle_unarchive(self, task: Any, action: dict[str, Any]) -> bool:
         """Process unarchive task."""
         delegate_to = task.get("delegate_to")
-        if (
-            delegate_to == "localhost"
-            or delegate_to != "localhost"
-            and not action.get("remote_src")
+        if delegate_to == "localhost" or (
+            delegate_to != "localhost" and not action.get("remote_src")
         ):
             src = action.get("src")
             if not isinstance(src, str):
@@ -73,8 +72,7 @@ should not be preserved when transferring files between them.
 
             if src.endswith("zip") and "-X" in action.get("extra_opts", []):
                 return True
-            if re.search(
-                r".*\.tar(\.(gz|bz2|xz))?$",
+            if self.RE_ARCHIVES.match(
                 src,
             ) and "--no-same-owner" not in action.get("extra_opts", []):
                 return True
