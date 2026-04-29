@@ -1,0 +1,49 @@
+Author: Michael R. Crusoe <crusoe@debian.org>
+Description: Debian-specific changes for running the tests offline during the build
+Forwarded: not-needed
+Index: ansible-lint/conftest.py
+===================================================================
+--- ansible-lint.orig/conftest.py
++++ ansible-lint/conftest.py
+@@ -17,7 +17,7 @@ if Path.cwd() != Path(__file__).parent:
+ # checking if user is running pytest without installing test dependencies:
+ missing = [
+     module
+-    for module in ["ansible", "black", "mypy", "pylint"]
++    for module in ["ansible", "black"]
+     if not importlib.util.find_spec(module)
+ ]
+ if missing:
+@@ -32,18 +32,6 @@ def pytest_configure(config: pytest.Conf
+     """Ensure we run preparation only on master thread when running in parallel."""
+     if is_help_option_present(config):
+         return
+-    if is_master(config):
+-        # we need to be sure that we have the requirements installed as some tests
+-        # might depend on these. This approach is compatible with GHA caching.
+-        try:
+-            subprocess.check_output(  # noqa: S603
+-                ["./tools/install-reqs.sh"],
+-                stderr=subprocess.PIPE,
+-                text=True,
+-            )
+-        except subprocess.CalledProcessError as exc:
+-            print(f"{exc}\n{exc.stderr}\n{exc.stdout}", file=sys.stderr)  # noqa: T201
+-            sys.exit(1)
+ 
+ 
+ def is_help_option_present(config: pytest.Config) -> bool:
+Index: ansible-lint/test/test_schemas.py
+===================================================================
+--- ansible-lint.orig/test/test_schemas.py
++++ ansible-lint/test/test_schemas.py
+@@ -20,9 +20,6 @@ from ansiblelint.schemas.__main__ import
+ from ansiblelint.schemas.main import validate_file_schema
+ 
+ schema_path = Path(schema_module).parent
+-spdx_config_path = (
+-    Path(license_expression.__file__).parent / "data" / "scancode-licensedb-index.json"
+-)
+ 
+ 
+ def urlopen_side_effect(*_args: Any, **kwargs: Any) -> DEFAULT:

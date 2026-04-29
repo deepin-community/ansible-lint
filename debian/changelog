@@ -1,5 +1,292 @@
-template-repository (1.0-1) unstable; urgency=medium
+ansible-lint (24.10.0-2) unstable; urgency=medium
 
-  * Initial release
+  * Team upload.
+  * No change source-only upload for testing migration.
 
- -- Tsic404 <liuheng@deepin.org>  Sat, 28 Jan 2023 13:46:49 +0800
+ -- Boyuan Yang <byang@debian.org>  Tue, 26 Nov 2024 09:18:55 -0500
+
+ansible-lint (24.10.0-1) unstable; urgency=medium
+
+  * New upstream version 24.10.0
+  * d/rules: need new directory "collections/" for tests
+
+ -- Gregory Colpart <reg@debian.org>  Sun, 17 Nov 2024 23:22:06 +0100
+
+ansible-lint (24.9.2-1) unstable; urgency=medium
+
+  * Team upload.
+  * New upstream version 24.9.2
+  * d/clean: Clean up src/ansiblelint/_version.py and update the path of the
+    ansible_lint.egg-info directory (Closes: #1043829)
+  * d/control: Update version constraint on python3-ansible-compat
+  * d/patches: Refresh patches
+  * d/rules: Skip failing test_find_children_in_playbook test
+
+ -- Vincent Blut <vincent.debian@free.fr>  Wed, 16 Oct 2024 22:47:29 +0200
+
+ansible-lint (24.7.0-1) unstable; urgency=medium
+
+  * Team upload.
+  * New upstream version 24.7.0
+
+ -- Vincent Blut <vincent.debian@free.fr>  Sat, 13 Jul 2024 23:05:35 +0200
+
+ansible-lint (24.6.1-1) unstable; urgency=medium
+
+  * Team upload.
+  * New upstream version 24.6.1 (Closes: #1070194)
+  * d/control:
+    - Add some required dependencies
+    - Update version constraint on black and python3-ansible-compat
+    - Bump Standards-Version to 4.7.0
+    - Run wrap-and-sort
+  * d/patches:
+    - Drop ruamel-yaml-0.18.5.patch
+    - Refresh remaining patches
+  * d/rules: Skip some failing tests
+
+ -- Vincent Blut <vincent.debian@free.fr>  Sun, 23 Jun 2024 16:50:49 +0200
+
+ansible-lint (6.17.2-3) unstable; urgency=medium
+
+  * Team upload.
+  * d/rules: skip 4 additional tests that pass during the build, but not
+    as autopkgtests.
+
+ -- Michael R. Crusoe <crusoe@debian.org>  Mon, 29 Apr 2024 21:08:55 +0200
+
+ansible-lint (6.17.2-2) unstable; urgency=medium
+
+  * Team upload.
+  * Add patch for newer ruamel.yaml 0.18.5+
+  * Enable testing using pybuild & pytest, also as autopkgtests.
+  * Ignore lintian complaints about ansiblelint/rules/*.md "package-
+    contains-documentation-outside-usr-share-doc"
+  * d/control: reformatted
+  * Build-Depends: s/dh-python/dh-sequence-python3/ (routine-update)
+
+ -- Michael R. Crusoe <crusoe@debian.org>  Mon, 29 Apr 2024 12:48:02 +0200
+
+ansible-lint (6.17.2-1) unstable; urgency=medium
+
+  * New upstream version 6.17.2
+  * d/ansible-lint.1: Update manpage (closes: #1037412)
+
+ -- Samuel Henrique <samueloph@debian.org>  Thu, 22 Jun 2023 23:36:14 +0100
+
+ansible-lint (6.17.1-1) unstable; urgency=medium
+
+  * New upstream version 6.17.1
+  * d/patches:
+    - Update remove_version_check.patch
+    - Drop remove_vendored_code.patch
+  * d/control: Update dependencies as per upstream
+
+ -- Samuel Henrique <samueloph@debian.org>  Fri, 16 Jun 2023 20:26:47 +0100
+
+ansible-lint (6.13.1-1) unstable; urgency=medium
+
+  * New upstream version 6.13.1
+  * d/p/remove_version_check.patch: Refresh patch
+
+ -- Samuel Henrique <samueloph@debian.org>  Sun, 26 Feb 2023 11:49:21 +0000
+
+ansible-lint (6.12.2-1) unstable; urgency=medium
+
+  * New upstream version 6.12.2
+  * d/p/remove_version_check.patch: Refresh patch
+  * d/p/remove_vendored_code.patch: New patch to remove vendored code usage
+
+ -- Samuel Henrique <samueloph@debian.org>  Fri, 10 Feb 2023 23:03:31 +0000
+
+ansible-lint (6.12.1-1) unstable; urgency=medium
+
+  * New upstream version 6.12.1
+
+ -- Samuel Henrique <samueloph@debian.org>  Wed, 08 Feb 2023 18:52:46 +0000
+
+ansible-lint (6.11.0-1) unstable; urgency=medium
+
+  * New upstream version 6.11.0
+  * d/control: Add new dependencies: black, git and python3-jinja2
+  * d/p/remove_version_check.patch: Refresh patch
+
+ -- Samuel Henrique <samueloph@debian.org>  Fri, 20 Jan 2023 22:44:05 +0000
+
+ansible-lint (6.9.1-1) unstable; urgency=medium
+
+  * New upstream version 6.9.1
+  * Bump Standards-Version to 4.6.2
+  * d/control: Add new dependency python3-filelock and bump jsonschema
+    requirement to 4.10.0
+  * d/p/disable_scm_version.patch: Drop patch in favor of using
+    python3-setuptools-scm
+  * d/p/remove_version_check.patch: New patch to disable external version
+    check
+
+ -- Samuel Henrique <samueloph@debian.org>  Sun, 15 Jan 2023 21:56:11 +0000
+
+ansible-lint (6.7.0-1) unstable; urgency=medium
+
+  * New upstream version 6.7.0
+  * Bump Standards-Version to 4.6.1.
+  * d/control: Bump version requirement of jsonschema to 4.9.0.
+  * d/tests: Drop autopkgtests, they were never too good and the maintenance
+    cost is too high.
+  * d/watch: Update file to drop alpha and beta releases, also use GitHub's
+    API.
+
+ -- Samuel Henrique <samueloph@debian.org>  Sat, 17 Dec 2022 20:22:48 +0000
+
+ansible-lint (6.3.0-2) unstable; urgency=medium
+
+  * Upload to unstable
+  * d/tests/control: Disable nomatch test, broken upstream
+
+ -- Samuel Henrique <samueloph@debian.org>  Sun, 17 Jul 2022 16:28:05 +0200
+
+ansible-lint (6.3.0-1) experimental; urgency=medium
+
+  * New upstream version 6.3.0 (closes: #1012366)
+    - This upload is blocked from going to unstable until
+      python3-jsonschema >= 4.6.0 gets uploaded to it.
+  * Move package maintenance under the Python's team
+  * d/control:
+    - New dependencies python3-ansible-compat and python3-jsonschema
+    - Drop ansible in favor of ansible-core (closes: #982653)
+  * d/copyright: Remove entry for deleted file 'NoLogPasswordsRule.py'
+  * d/docs:
+    - Stop installing examples folder (they're actually ansible test data)
+    - Rename README.rst to README.md
+  * d/p/disable_scm_version.patch: Update patch
+
+ -- Samuel Henrique <samueloph@debian.org>  Sat, 18 Jun 2022 18:55:02 +0100
+
+ansible-lint (5.4.0-2) unstable; urgency=medium
+
+  * d/watch: Fix URL regression/typo from last upload
+
+ -- Samuel Henrique <samueloph@debian.org>  Sat, 26 Feb 2022 17:52:12 +0000
+
+ansible-lint (5.4.0-1) unstable; urgency=medium
+
+  * New upstream version 5.4.0
+  * Bump Standards-Version to 4.6.0
+  * Update upstream URLs
+  * d/NEWS: Create news file and warn about new "--offline" flag,
+    without it, ansible-lint will try and download roles and collections set
+    in requirements.yml (if the file exists), using ansible-galaxy, into a
+    temporary folder.
+  * d/control:
+    - Add ansible-core as an alternative dependency (will become the default
+      once #1001040 is fixed)
+    - Update dependencies list according to upstream and
+      wrap-and-sort
+  * d/copyright:
+    - Update copyright info (upstream is both GPL-3 and Expat)
+    - Update debian/ years and remove deleted file
+  * d/p/disable_scm_version.patch: Update patch
+  * d/salsa-ci.yml: Remove file in favor of using default CI settings
+  * d/t/tests
+    - Ignore experimental findings in tests and use package
+      provided files
+    - Don't call tests from source code root to avoid parsing upstream's
+      .yamllint
+
+ -- Samuel Henrique <samueloph@debian.org>  Sat, 26 Feb 2022 00:30:15 +0000
+
+ansible-lint (4.3.7-1) unstable; urgency=medium
+
+  * New upstream version 4.3.7
+  * d/p/fix-examples.patch: Remove patch, merged upstream
+
+ -- Samuel Henrique <samueloph@debian.org>  Wed, 04 Nov 2020 19:37:49 +0000
+
+ansible-lint (4.3.5-1) unstable; urgency=medium
+
+  * New upstream version 4.3.5
+  * Add d/salsa-ci.yml
+  * d/t/lots-of-warnings: Update test
+
+ -- Samuel Henrique <samueloph@debian.org>  Sat, 03 Oct 2020 18:23:01 +0100
+
+ansible-lint (4.3.1-1) unstable; urgency=medium
+
+  * New upstream version 4.3.1
+  * Bump DH to 13
+  * Bump Standards-Version to 4.5.0
+  * Add d/gbp.conf
+  * d/p/fix-examples.patch: new patch to fix example used on autopkgtest
+  * d/t/lots-of-warnings: Update test
+  * d/copyright: Remove Files-Excluded field as there's no repackaging anymore
+
+  [ Debian Janitor ]
+  * Set upstream metadata fields: Bug-Database, Bug-Submit, Repository,
+    Repository-Browse.
+
+ -- Samuel Henrique <samueloph@debian.org>  Sat, 03 Oct 2020 17:30:44 +0100
+
+ansible-lint (4.2.0-1) unstable; urgency=medium
+
+  * New upstream version 4.2.0
+  * Update Standards-Version to 4.4.1
+  * Use debhelper-compat
+  * The upstream tarball is now dfsg compliant as it does not ship the "docs"
+    directory anymore.
+  * d/control:
+    - Add Dependency python3-ruamel.yaml
+    - Add Rules-Requires-Root: no
+    - Remove Build-Dependency python3-setuptools-scm-git-archive
+  * d/patches:
+    - add_setup_py.patch: New patch to add setup_py
+    - disable_scm_version.patch:
+      ~ Set version on setup.cfg without using scm module
+      ~ Update patch
+  * d/tests/lots-of-warnings: Get a predictable output for different test envs
+
+ -- Samuel Henrique <samueloph@debian.org>  Sun, 08 Dec 2019 20:39:41 +0000
+
+ansible-lint (4.1.0+dfsg.1-2) unstable; urgency=medium
+
+  [ Ryo IGARASHI ]
+  * Fix rules location in manpage (closes: #934011)
+
+  [ Samuel Henrique ]
+  * Bump Standards-Version to 4.4.0
+  * Remove underline of runtime test name
+  * Add missing dependency of python3-pkg-resources
+
+ -- Samuel Henrique <samueloph@debian.org>  Wed, 04 Sep 2019 01:01:45 +0100
+
+ansible-lint (4.1.0+dfsg.1-1) unstable; urgency=medium
+
+  * New upstream version 4.1.0+dfsg.1 (closes: #918783)
+    - dfsg.1: Remove docs dir, which contains non-free code
+      and we don't use any of it anyway.
+  * Use python3 instead of python2 (closes: #921030)
+  * Bump DH level to 12
+  * Bump Standards-Version to 4.3.0
+  * Add myself as an uploader
+  * Move packaging to salsa
+  * Add autopkgtests
+  * d/docs: update docs of new release
+  * d/control: add new build dependencies of latest release
+  * d/copyright: update all entries
+  * d/p/disable_scm_version.patch: new patch to disable usage of pypi
+  * d/rules: use pybuild instead of distutils
+  * d/watch: create file and point to GitHub
+  * wrap-and-sort -a
+
+ -- Samuel Henrique <samueloph@debian.org>  Sun, 24 Feb 2019 12:30:38 +0000
+
+ansible-lint (3.4.20+git.20180203-1) unstable; urgency=medium
+
+  * New upstream release (Closes: #882066)
+
+ -- Gregory Colpart <reg@debian.org>  Sat, 03 Feb 2018 18:50:23 +0100
+
+ansible-lint (3.4.13+git.20170811-1-1) unstable; urgency=medium
+
+  * Initial release (Closes: #799144)
+
+ -- Gregory Colpart <reg@debian.org>  Fri, 11 Aug 2017 16:56:58 -0400

@@ -1,0 +1,2 @@
+# Not docs, but data files
+ansible-lint: package-contains-documentation-outside-usr-share-doc [usr/lib/python3/dist-packages/ansiblelint/*.md]

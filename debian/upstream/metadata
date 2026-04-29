@@ -1,0 +1,5 @@
+Bug-Database: https://github.com/ansible/ansible-lint/issues
+Bug-Submit: https://github.com/ansible/ansible-lint/issues/new
+Repository: https://github.com/ansible/ansible-lint.git
+Repository-Browse: https://github.com/ansible/ansible-lint
+Security-Contact: https://github.com/ansible/ansible-lint/tree/HEAD/.github/SECURITY.md
