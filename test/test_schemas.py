@@ -25,7 +25,7 @@ spdx_config_path = (
 )
 
 
-def urlopen_side_effect(*_args: Any, **kwargs: Any) -> DEFAULT:
+def urlopen_side_effect(*_args: Any, **kwargs: Any) -> Any:
     """Actual test that timeout parameter is defined."""
     assert "timeout" in kwargs
     assert kwargs["timeout"] > 0
@@ -47,7 +47,11 @@ def test_request_timeouterror_handling(
 ) -> None:
     """Test that schema refresh can handle time out errors."""
     error_msg = "Simulating handshake operation time out."
-    mock_request.urlopen.side_effect = urllib.error.URLError(TimeoutError(error_msg))
+    mock_request.urlopen.side_effect = (
+        urllib.error.URLError(  # pyright: ignore[reportAttributeAccessIssue]
+            TimeoutError(error_msg)
+        )
+    )
     with caplog.at_level(logging.DEBUG):
         assert refresh_schemas(min_age_seconds=0) == 0
     mock_request.urlopen.assert_called()
@@ -92,17 +96,17 @@ def test_spdx() -> None:
         schema = json.load(f)
         spx_enum = schema["$defs"]["SPDXLicenseEnum"]["enum"]
     if set(spx_enum) != license_ids:
-        # In absence of a
-        if os.environ.get("PIP_CONSTRAINT", "/dev/null") == "/dev/null":
+        constraints = os.environ.get("PIP_CONSTRAINT", "/dev/null")
+        if constraints.endswith(".config/constraints.txt"):
             with galaxy_json.open("w", encoding="utf-8") as f:
                 schema["$defs"]["SPDXLicenseEnum"]["enum"] = sorted(license_ids)
                 json.dump(schema, f, indent=2)
             pytest.fail(
-                "SPDX license list inside galaxy.json JSON Schema file was updated.",
+                f"SPDX license list inside galaxy.json JSON Schema file was updated. {constraints}",
             )
         else:
             warnings.warn(
-                "test_spdx failure was ignored because constraints were not pinned (PIP_CONSTRAINTS). This is expected for py310 and py-devel jobs.",
+                f"test_spdx failure was ignored because constraints were not pinned (PIP_CONSTRAINT={constraints}). This is expected for py310 and py-devel, lower jobs.",
                 category=pytest.PytestWarning,
                 stacklevel=1,
             )

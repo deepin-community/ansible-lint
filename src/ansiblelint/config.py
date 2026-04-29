@@ -10,7 +10,6 @@ import time
 import urllib.request
 import warnings
 from dataclasses import dataclass, field
-from functools import lru_cache
 from http.client import HTTPException
 from importlib.metadata import PackageNotFoundError, distribution, version
 from pathlib import Path
@@ -43,7 +42,8 @@ DEFAULT_KINDS = [
     {"text": "**/templates/**/*.*"},  # templates are likely not validable
     {"execution-environment": "**/execution-environment.yml"},
     {"ansible-lint-config": "**/.ansible-lint"},
-    {"ansible-lint-config": "**/.config/ansible-lint.yml"},
+    {"ansible-lint-config": "**/.ansible-lint.{yaml,yml}"},
+    {"ansible-lint-config": "**/.config/ansible-lint.{yaml,yml}"},
     {"ansible-navigator-config": "**/ansible-navigator.{yaml,yml}"},
     {"inventory": "**/inventory/**.{yaml,yml}"},
     {"requirements": "**/meta/requirements.{yaml,yml}"},  # v1 only
@@ -139,6 +139,7 @@ class Options:  # pylint: disable=too-many-instance-attributes
     list_rules: bool = False
     list_tags: bool = False
     write_list: list[str] = field(default_factory=list)
+    write_exclude_list: list[str] = field(default_factory=list)
     parseable: bool = False
     quiet: bool = False
     rulesdirs: list[Path] = field(default_factory=list)
@@ -176,7 +177,7 @@ class Options:  # pylint: disable=too-many-instance-attributes
     max_tasks: int = 100
     max_block_depth: int = 20
     # Refer to https://docs.ansible.com/ansible/latest/reference_appendices/release_and_maintenance.html#ansible-core-support-matrix
-    _default_supported = ["2.15.", "2.16.", "2.17."]
+    _default_supported = ["2.15.", "2.16.", "2.17.", "2.18."]
     supported_ansible_also: list[str] = field(default_factory=list)
 
     @property
@@ -201,24 +202,8 @@ options = Options()
 # Used to store detected tag deprecations
 used_old_tags: dict[str, str] = {}
 
-# Used to store collection list paths (with mock paths if needed)
-collection_list: list[str] = []
-
 # Used to store log messages before logging is initialized (level, message)
 log_entries: list[tuple[int, str]] = []
-
-
-@lru_cache
-def ansible_collections_path() -> str:
-    """Return collection path variable for current version of Ansible."""
-    # respect Ansible behavior, which is to load old name if present
-    for env_var in [
-        "ANSIBLE_COLLECTIONS_PATHS",
-        "ANSIBLE_COLLECTIONS_PATH",
-    ]:  # pragma: no cover
-        if env_var in os.environ:
-            return env_var
-    return "ANSIBLE_COLLECTIONS_PATH"
 
 
 def in_venv() -> bool:
@@ -238,7 +223,7 @@ def guess_install_method() -> str:
         if (distribution(package_name).read_text("INSTALLER") or "").strip() != "pip":
             return ""
     except PackageNotFoundError as exc:
-        logging.debug(exc)
+        _logger.debug(exc)
         return ""
 
     pip = ""
@@ -268,16 +253,16 @@ def guess_install_method() -> str:
 
             dist = get_default_environment().get_distribution(package_name)
             if dist:
-                logging.debug("Found %s dist", dist)
+                _logger.debug("Found %s dist", dist)
                 for _ in uninstallation_paths(dist):
                     use_pip = True
             else:
-                logging.debug("Skipping %s as it is not installed.", package_name)
+                _logger.debug("Skipping %s as it is not installed.", package_name)
                 use_pip = False
     except (AttributeError, ModuleNotFoundError) as exc:
         # On Fedora 36, we got a AttributeError exception from pip that we want to avoid
         # On NixOS, we got a ModuleNotFoundError exception from pip that we want to avoid
-        logging.debug(exc)
+        _logger.debug(exc)
         use_pip = False
 
     # We only want to recommend pip for upgrade if it looks safe to do so.
@@ -346,7 +331,7 @@ def get_version_warning() -> str:
         if current_version > new_version:
             msg = "[dim]You are using a pre-release version of ansible-lint.[/]"
         elif current_version < new_version:
-            msg = f"""[warning]A new release of ansible-lint is available: [red]{current_version}[/] → [green][link={html_url}]{new_version}[/][/][/]"""
+            msg = f"""[warning]A new release of ansible-lint is available: [warning]{current_version}[/] → [success][link={html_url}]{new_version}[/link][/][/]"""
             msg += f" Upgrade by running: [info]{pip}[/]"
 
     return msg

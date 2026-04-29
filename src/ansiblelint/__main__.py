@@ -29,12 +29,12 @@ import pathlib
 import shutil
 import site
 import sys
+import warnings
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, TextIO
+from typing import TYPE_CHECKING
 
 from ansible_compat.prerun import get_cache_dir
-from filelock import FileLock, Timeout
-from rich.markup import escape
+from filelock import BaseFileLock, FileLock, Timeout
 
 from ansiblelint.constants import RC, SKIP_SCHEMA_UPDATE
 
@@ -50,13 +50,6 @@ except Exception as _exc:  # pylint: disable=broad-exception-caught # noqa: BLE0
 from ansiblelint import cli
 from ansiblelint._mockings import _perform_mockings_cleanup
 from ansiblelint.app import get_app
-from ansiblelint.color import (
-    console,
-    console_options,
-    console_stderr,
-    reconfigure,
-    render_yaml,
-)
 from ansiblelint.config import (
     Options,
     get_deps_versions,
@@ -65,14 +58,19 @@ from ansiblelint.config import (
     options,
 )
 from ansiblelint.loaders import load_ignore_txt
+from ansiblelint.output import (
+    console,
+    console_stderr,
+    reconfigure,
+    render_yaml,
+    should_do_markup,
+)
 from ansiblelint.runner import get_matches
 from ansiblelint.skip_utils import normalize_tag
 from ansiblelint.version import __version__
 
 if TYPE_CHECKING:
     # RulesCollection must be imported lazily or ansible gets imported too early.
-
-    from collections.abc import Callable
 
     from ansiblelint.rules import RulesCollection
     from ansiblelint.runner import LintResult
@@ -87,7 +85,7 @@ class LintLogHandler(logging.Handler):
     def emit(self, record: logging.LogRecord) -> None:
         try:
             msg = self.format(record)
-            console_stderr.print(f"[dim]{msg}[/dim]", highlight=False)
+            console_stderr.print(f"[dim]{msg}[/]")
         except RecursionError:  # See issue 36272
             raise
         except Exception:  # pylint: disable=broad-exception-caught # noqa: BLE001
@@ -119,7 +117,7 @@ def initialize_logger(level: int = 0) -> None:
     _logger.debug("Logging initialized to level %s", logging_level)
 
 
-def initialize_options(arguments: list[str] | None = None) -> None | FileLock:
+def initialize_options(arguments: list[str] | None = None) -> BaseFileLock | None:
     """Load config options and store them inside options module."""
     cache_dir_lock = None
     new_options = cli.get_config(arguments or [])
@@ -166,18 +164,11 @@ def initialize_options(arguments: list[str] | None = None) -> None | FileLock:
 def _do_list(rules: RulesCollection) -> int:
     # On purpose lazy-imports to avoid pre-loading Ansible
     # pylint: disable=import-outside-toplevel
-    from ansiblelint.generate_docs import rules_as_md, rules_as_rich, rules_as_str
+    from ansiblelint.generate_docs import rules_as_str
 
     if options.list_rules:
-        _rule_format_map: dict[str, Callable[..., Any]] = {
-            "brief": rules_as_str,
-            "full": rules_as_rich,
-            "md": rules_as_md,
-        }
-
         console.print(
-            _rule_format_map.get(options.format, rules_as_str)(rules),
-            highlight=False,
+            rules_as_str(rules),
         )
         return 0
 
@@ -227,7 +218,9 @@ def fix(runtime_options: Options, result: LintResult, rules: RulesCollection) ->
 
     # pylint: enable=import-outside-toplevel
 
-    if Version(ruamel_safe_version) > Version(ruamel_yaml_version_str):
+    if Version(ruamel_safe_version) > Version(
+        ruamel_yaml_version_str
+    ):  # pragma: no cover
         _logger.warning(
             "We detected use of `--fix` feature with a buggy ruamel-yaml %s library instead of >=%s, upgrade it before reporting any bugs like dropped comments.",
             ruamel_yaml_version_str,
@@ -236,7 +229,7 @@ def fix(runtime_options: Options, result: LintResult, rules: RulesCollection) ->
     acceptable_tags = {"all", "none", *rules.known_tags()}
     unknown_tags = set(options.write_list).difference(acceptable_tags)
 
-    if unknown_tags:
+    if unknown_tags:  # pragma: no cover
         _logger.error(
             "Found invalid value(s) (%s) for --fix arguments, must be one of: %s",
             ", ".join(unknown_tags),
@@ -279,40 +272,54 @@ def fix(runtime_options: Options, result: LintResult, rules: RulesCollection) ->
         result.matches.pop(idx)
 
 
-# pylint: disable=too-many-locals
+# pylint: disable=too-many-locals,too-many-statements
 def main(argv: list[str] | None = None) -> int:
     """Linter CLI entry point."""
+    must_exit = False
     # alter PATH if needed (venv support)
     path_inject(argv[0] if argv and argv[0] else "")
 
     if argv is None:  # pragma: no cover
         argv = sys.argv
-    cache_dir_lock = initialize_options(argv[1:])
 
-    console_options["force_terminal"] = options.colored
-    reconfigure(console_options)
+    warnings.simplefilter(
+        "ignore", ResourceWarning
+    )  # suppress "enable tracemalloc to get the object allocation traceback"
+    with warnings.catch_warnings(record=True) as warns:
+        # do not use "ignore" as we will miss to collect them
+        warnings.simplefilter(action="default")
 
-    if options.version:
-        deps = get_deps_versions()
-        msg = f"ansible-lint [repr.number]{__version__}[/] using[dim]"
-        for k, v in deps.items():
-            msg += f" {escape(k)}:[repr.number]{v}[/]"
-        msg += "[/]"
-        console.print(msg, markup=True, highlight=False)
-        msg = get_version_warning()
-        if msg:
+        cache_dir_lock = initialize_options(argv[1:])
+
+        reconfigure(colored=options.colored)
+
+        if options.version:
+            deps = get_deps_versions()
+            msg = f"ansible-lint [repr.number]{__version__}[/] using[dim]"
+            for k, v in deps.items():
+                msg += f" {k}:[repr.number]{v}[/]"
+            msg += "[/]"
             console.print(msg)
-        support_banner()
+            msg = get_version_warning()
+            if msg:  # pragma: no cover
+                console.print(msg)
+            support_banner()
+            must_exit = True
+        else:
+            support_banner()
+
+        initialize_logger(options.verbosity)
+        for level, message in log_entries:
+            _logger.log(level, message)
+        _logger.debug("Options: %s", options)
+        _logger.debug("CWD: %s", Path.cwd())
+
+    for warn in warns:  # pragma: no cover
+        _logger.warning(str(warn.message))
+    warnings.resetwarnings()
+
+    if must_exit:
         sys.exit(0)
-    else:
-        support_banner()
-
-    initialize_logger(options.verbosity)
-    for level, message in log_entries:
-        _logger.log(level, message)
-    _logger.debug("Options: %s", options)
-    _logger.debug("CWD: %s", Path.cwd())
-
     # checks if we have `ANSIBLE_LINT_SKIP_SCHEMA_UPDATE` set to bypass schema
     # update. Also skip if in offline mode.
     # env var set to skip schema refresh
@@ -329,7 +336,7 @@ def main(argv: list[str] | None = None) -> int:
         or options.nodeps
     )
 
-    if not skip_schema_update:
+    if not skip_schema_update:  # pragma: no cover
         # pylint: disable=import-outside-toplevel
         from ansiblelint.schemas.__main__ import refresh_schemas
 
@@ -339,9 +346,9 @@ def main(argv: list[str] | None = None) -> int:
     from ansiblelint.rules import RulesCollection
 
     if options.list_profiles:
-        from ansiblelint.generate_docs import profiles_as_rich
+        from ansiblelint.generate_docs import profiles_as_md
 
-        console.print(profiles_as_rich())
+        profiles_as_md().display()
         return 0
 
     app = get_app(
@@ -372,18 +379,18 @@ def main(argv: list[str] | None = None) -> int:
     # Mark matches as ignored inside ignore file
     ignore_map = load_ignore_txt(options.ignore_file)
     for match in result.matches:
-        if match.tag in ignore_map[match.filename]:
+        if match.tag in ignore_map[match.filename]:  # pragma: no cover
             match.ignored = True
             _logger.debug("Ignored: %s", match)
 
-    if app.yamllint_config.incompatible:
-        logging.log(
+    if app.yamllint_config.incompatible:  # pragma: no cover
+        _logger.log(
             level=logging.ERROR if options.write_list else logging.WARNING,
             msg=app.yamllint_config.incompatible,
         )
 
     if options.write_list:
-        if app.yamllint_config.incompatible:
+        if app.yamllint_config.incompatible:  # pragma: no cover
             sys.exit(RC.INVALID_CONFIG)
         fix(runtime_options=options, result=result, rules=rules)
 
@@ -449,16 +456,16 @@ def path_inject(own_location: str = "") -> None:
         str(userbase_bin_path) not in paths
         and (userbase_bin_path / "bin" / "ansible").exists()
     ):
-        inject_paths.append(str(userbase_bin_path))
+        inject_paths.append(userbase_bin_path.resolve().as_posix())
 
-    py_path = Path(sys.executable).parent
+    py_path = Path(sys.executable).parent.resolve()
     pipx_path = os.environ.get("PIPX_HOME", "pipx")
     if (
         str(py_path) not in paths
         and (py_path / "ansible").exists()
         and pipx_path not in str(py_path)
     ):
-        inject_paths.append(str(py_path))
+        inject_paths.append(py_path.as_posix())
 
     # last option, if nothing else is found, just look next to ourselves...
     if own_location:
@@ -480,52 +487,9 @@ def path_inject(own_location: str = "") -> None:
     # functioning or that is in fact the same version that was installed as
     # our dependency, but addressing this would be done by ansible-compat.
     for cmd in ("ansible",):
-        if not shutil.which(cmd):
+        if not shutil.which(cmd):  # pragma: no cover
             msg = f"Failed to find runtime dependency '{cmd}' in PATH"
             raise RuntimeError(msg)
-
-
-# Based on Ansible implementation
-def to_bool(value: Any) -> bool:  # pragma: no cover
-    """Return a bool for the arg."""
-    if value is None or isinstance(value, bool):
-        return bool(value)
-    if isinstance(value, str):
-        value = value.lower()
-    return value in ("yes", "on", "1", "true", 1)
-
-
-def should_do_markup(stream: TextIO = sys.stdout) -> bool:  # pragma: no cover
-    """Decide about use of ANSI colors."""
-    py_colors = None
-
-    # https://xkcd.com/927/
-    for env_var in ["PY_COLORS", "CLICOLOR", "FORCE_COLOR", "ANSIBLE_FORCE_COLOR"]:
-        value = os.environ.get(env_var, None)
-        if value is not None:
-            py_colors = to_bool(value)
-            break
-
-    # If deliberately disabled colors
-    if os.environ.get("NO_COLOR", None):
-        return False
-
-    # User configuration requested colors
-    if py_colors is not None:
-        return to_bool(py_colors)
-
-    term = os.environ.get("TERM", "")
-    if "xterm" in term:
-        return True
-
-    if term == "dumb":
-        return False
-
-    # Use tty detection logic as last resort because there are numerous
-    # factors that can make isatty return a misleading value, including:
-    # - stdin.isatty() is the only one returning true, even on a real terminal
-    # - stderr returning false if user user uses a error stream coloring solution
-    return stream.isatty()
 
 
 if __name__ == "__main__":

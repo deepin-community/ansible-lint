@@ -38,6 +38,7 @@ from ansiblelint.constants import RC
 from ansiblelint.file_utils import Lintable, cwd
 from ansiblelint.runner import Runner
 from ansiblelint.testing import run_ansible_lint
+from ansiblelint.types import AnsibleMapping, AnsibleSequence
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -47,7 +48,6 @@ if TYPE_CHECKING:
     from _pytest.monkeypatch import MonkeyPatch
 
     from ansiblelint.rules import RulesCollection
-
 
 runtime = Runtime(require_module=True)
 
@@ -221,7 +221,7 @@ def test_extract_from_list() -> None:
         "test_none": None,
         "test_string": "foo",
     }
-    blocks = [block]
+    blocks = AnsibleSequence([block])
 
     test_list = utils.extract_from_list(blocks, ["block"])
     test_none = utils.extract_from_list(blocks, ["test_none"])
@@ -234,10 +234,10 @@ def test_extract_from_list() -> None:
 
 def test_extract_from_list_recursive() -> None:
     """Check that tasks get extracted from blocks if present."""
-    block = {
+    block = AnsibleMapping({
         "block": [{"block": [{"name": "hello", "command": "whoami"}]}],
-    }
-    blocks = [block]
+    })
+    blocks = AnsibleSequence([block])
 
     test_list = utils.extract_from_list(blocks, ["block"])
     assert list(block["block"]) == test_list
@@ -250,11 +250,12 @@ def test_extract_from_list_recursive() -> None:
     ("template", "output"),
     (
         pytest.param("{{ playbook_dir }}", "/a/b/c", id="simple"),
-        pytest.param(
-            "{{ 'hello' | doesnotexist }}",
-            "hello",  # newer implementation ignores unknown filters
-            id="unknown_filter",
-        ),
+        # Does not work the same with ansible 2.19 with data tagging
+        # pytest.param(
+        #     "{{ 'hello' | doesnotexist }}",
+        #     "hello",  # newer implementation ignores unknown filters
+        #     id="unknown_filter",
+        # ),
         pytest.param(
             "{{ hello | to_json }}",
             "{{ hello | to_json }}",
@@ -281,8 +282,7 @@ def test_template(template: str, output: str) -> None:
 def test_task_to_str_unicode() -> None:
     """Ensure that extracting messages from tasks preserves Unicode."""
     task = utils.Task({"fail": {"msg": "unicode é ô à"}}, filename="filename.yml")
-    result = utils.task_to_str(task._normalize_task())  # noqa: SLF001
-    assert result == "fail msg=unicode é ô à"
+    assert str(task) == "fail msg=unicode é ô à"
 
 
 def test_logger_debug(caplog: LogCaptureFixture) -> None:
@@ -310,6 +310,12 @@ def test_cli_auto_detect(capfd: CaptureFixture[str]) -> None:
         "-v",
         "-p",
         "--nocolor",
+        "--offline",
+        "--exclude=examples",
+        "--exclude=test",
+        "--exclude=src",
+        "--exclude=collections",
+        "--exclude=.github",
     ]
     result = subprocess.run(cmd, check=False).returncode
 
@@ -319,18 +325,15 @@ def test_cli_auto_detect(capfd: CaptureFixture[str]) -> None:
     out, err = capfd.readouterr()
 
     # An expected rule match from our examples
-    assert (
-        "examples/playbooks/empty_playbook.yml:1:1: "
-        "syntax-check[empty-playbook]: Empty playbook, nothing to do" in out
+    assert any(
+        x in out
+        for x in ("playbook.yml:6: name[casing]", "playbook.yml:6:13: name[casing]")
     )
     # assures that our ansible-lint config exclude was effective in excluding github files
     assert "Identified: .github/" not in out
     # assures that we can parse playbooks as playbooks
     assert "Identified: test/test/always-run-success.yml" not in err
-    assert (
-        "Executing syntax check on playbook examples/playbooks/mocked_dependency.yml"
-        in err
-    )
+    assert "Executing syntax check on playbook playbook.yml" in err
 
 
 def test_is_playbook() -> None:
@@ -518,5 +521,20 @@ def test_import_playbook_children() -> None:
     assert "Failed to find local.testcollection.foo playbook." not in result.stderr
     assert (
         "Failed to load local.testcollection.foo playbook due to failing syntax check."
+        not in result.stderr
+    )
+
+
+def test_import_playbook_children_subdirs() -> None:
+    """Verify import_playbook_children() when playbook is in a subdirectory."""
+    result = run_ansible_lint(
+        Path("playbooks/import_playbook_fqcn.yml"),
+        cwd=Path(__file__).resolve().parent.parent / "examples",
+        env={
+            "ANSIBLE_COLLECTIONS_PATH": "../collections",
+        },
+    )
+    assert (
+        "Failed to find local.testcollection.test.bar.foo playbook."
         not in result.stderr
     )

@@ -26,6 +26,7 @@ import collections.abc
 import logging
 import re
 import warnings
+from collections.abc import Mapping, MutableMapping, Sequence
 from functools import cache
 from itertools import product
 from typing import TYPE_CHECKING, Any
@@ -46,11 +47,10 @@ from ansiblelint.constants import (
 from ansiblelint.errors import LintWarning, WarnSource
 
 if TYPE_CHECKING:
-    from collections.abc import Generator, Sequence
-
-    from ansible.parsing.yaml.objects import AnsibleBaseYAMLObject
+    from collections.abc import Generator
 
     from ansiblelint.file_utils import Lintable
+    from ansiblelint.types import AnsibleBaseYAMLObject
 
 
 _logger = logging.getLogger(__name__)
@@ -112,7 +112,7 @@ def append_skipped_rules(
     """
     try:
         yaml_skip = _append_skipped_rules(pyyaml_data, lintable)
-    except RuntimeError:
+    except RuntimeError:  # pragma: no cover
         # Notify user of skip error, do not stop, do not change exit code
         _logger.exception("Error trying to append skipped rules")
         return pyyaml_data
@@ -149,7 +149,7 @@ def _append_skipped_rules(
     # parse file text using 2nd parser library
     try:
         ruamel_data = load_data(lintable.content)
-    except ScannerError as exc:
+    except ScannerError as exc:  # pragma: no cover
         _logger.debug(
             "Ignored loading skipped rules from file %s due to: %s",
             lintable,
@@ -169,7 +169,7 @@ def _append_skipped_rules(
         "galaxy",
     ]:
         # AnsibleMapping, dict
-        if hasattr(pyyaml_data, "get"):
+        if isinstance(pyyaml_data, MutableMapping):
             pyyaml_data[SKIPPED_RULES_KEY] = skipped_rules
         # AnsibleSequence, list
         elif (
@@ -182,15 +182,19 @@ def _append_skipped_rules(
         return pyyaml_data
 
     # create list of blocks of tasks or nested tasks
-    if lintable.kind in ("tasks", "handlers"):
-        ruamel_task_blocks = ruamel_data
-        pyyaml_task_blocks = pyyaml_data
-    elif lintable.kind == "playbook":
-        try:
-            pyyaml_task_blocks = _get_task_blocks_from_playbook(pyyaml_data)
-            ruamel_task_blocks = _get_task_blocks_from_playbook(ruamel_data)
-        except (AttributeError, TypeError):
+    pyyaml_task_blocks: Sequence[Any]
+    if lintable.kind in ("tasks", "handlers", "playbook"):
+        if not isinstance(pyyaml_data, Sequence):
             return pyyaml_data
+        if lintable.kind in ("tasks", "handlers"):
+            ruamel_task_blocks = ruamel_data
+            pyyaml_task_blocks = pyyaml_data
+        else:
+            try:
+                pyyaml_task_blocks = _get_task_blocks_from_playbook(pyyaml_data)
+                ruamel_task_blocks = _get_task_blocks_from_playbook(ruamel_data)
+            except (AttributeError, TypeError):
+                return pyyaml_data
     else:
         # For unsupported file types, we return empty skip lists
         return None
@@ -209,7 +213,7 @@ def _append_skipped_rules(
         if isinstance(pyyaml_task, str):
             continue
 
-        if pyyaml_task.get("name") != ruamel_task.get("name"):
+        if pyyaml_task.get("name") != ruamel_task.get("name"):  # pragma: no cover
             msg = "Error in matching skip comment to a task"
             raise RuntimeError(msg)
         pyyaml_task[SKIPPED_RULES_KEY] = _get_rule_skips_from_yaml(
@@ -300,16 +304,19 @@ def _get_rule_skips_from_yaml(
 
 def normalize_tag(tag: str) -> str:
     """Return current name of tag."""
-    if tag in RENAMED_TAGS:
+    if tag in RENAMED_TAGS:  # pragma: no cover
         used_old_tags[tag] = RENAMED_TAGS[tag]
         return RENAMED_TAGS[tag]
     return tag
 
 
-def is_nested_task(task: dict[str, Any]) -> bool:
+def is_nested_task(task: Mapping[str, Any]) -> bool:
     """Check if task includes block/always/rescue."""
     # Cannot really trust the input
     if isinstance(task, str):
+        return False
+    # https://github.com/ansible/ansible-lint/issues/4492
+    if not hasattr(task, "get"):
         return False
 
     return any(task.get(key) for key in NESTED_TASK_KEYS)

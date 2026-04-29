@@ -242,6 +242,7 @@ class Lintable:
             self.file = NamedTemporaryFile(  # noqa: SIM115
                 mode="w+",
                 suffix="playbook.yml",
+                encoding="utf-8",
             )
             self.filename = self.file.name
             self._content = sys.stdin.read()
@@ -325,7 +326,7 @@ class Lintable:
         """Retrieve file content, from internal cache or disk."""
         if self._content is None:
             self._populate_content_cache_from_disk()
-        return cast(str, self._content)
+        return cast("str", self._content)
 
     @content.setter
     def content(self, value: str) -> None:
@@ -406,7 +407,8 @@ class Lintable:
     def failed(self) -> bool:
         """Return true if we already found syntax-check errors on this file."""
         return any(
-            match.rule.id in ("syntax-check", "load-failure") for match in self.matches
+            match.rule.id in ("syntax-check", "load-failure", "internal-error")
+            for match in self.matches
         )
 
     @property
@@ -434,12 +436,13 @@ class Lintable:
                         from ansiblelint.skip_utils import append_skipped_rules
 
                     # pylint: disable=possibly-used-before-assignment
-                    self.state = append_skipped_rules(
-                        self.state,
-                        self,
-                    )
+                    if self.state:
+                        self.state = append_skipped_rules(
+                            self.state,
+                            self,
+                        )
                 else:
-                    logging.debug(
+                    _logger.debug(
                         "data set to None for %s due to being '%s' (%s) kind.",
                         self.path,
                         self.kind,
@@ -475,11 +478,6 @@ def discover_lintables(options: Options) -> list[str]:
             exclude_paths=options.exclude_paths,
         )
     ]
-
-
-def strip_dotslash_prefix(fname: str) -> str:
-    """Remove ./ leading from filenames."""
-    return fname[2:] if fname.startswith("./") else fname
 
 
 def find_project_root(
@@ -588,6 +586,7 @@ def get_all_files(
         pathspecs = [
             pathspec.GitIgnoreSpec.from_lines(
                 [
+                    ".ansible",
                     ".git",
                     ".tox",
                     ".mypy_cache",
@@ -614,7 +613,7 @@ def get_all_files(
         else:
             for item in sorted(path.iterdir()):
                 if is_excluded(item):
-                    _logger.info("Excluded: %s", item)
+                    _logger.debug("Excluded: %s", item)
                     continue
                 if item.is_file():
                     all_files.append(item)

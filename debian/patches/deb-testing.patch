@@ -1,24 +1,35 @@
-Author: Michael R. Crusoe <crusoe@debian.org>
-Description: Debian-specific changes for running the tests offline during the build
+From: "Michael R. Crusoe" <crusoe@debian.org>
+Date: Sun, 6 Apr 2025 15:10:41 +0100
+Subject: Debian-specific changes for running the tests offline during the
+ build
+
 Forwarded: not-needed
-Index: ansible-lint/conftest.py
-===================================================================
---- ansible-lint.orig/conftest.py
-+++ ansible-lint/conftest.py
-@@ -17,7 +17,7 @@ if Path.cwd() != Path(__file__).parent:
+---
+ conftest.py          | 19 +------------------
+ test/test_schemas.py |  3 ---
+ 2 files changed, 1 insertion(+), 21 deletions(-)
+
+--- a/conftest.py
++++ b/conftest.py
+@@ -16,7 +16,7 @@
+ 
  # checking if user is running pytest without installing test dependencies:
  missing = [
-     module
--    for module in ["ansible", "black", "mypy", "pylint"]
-+    for module in ["ansible", "black"]
-     if not importlib.util.find_spec(module)
+-    module for module in ["ansible", "black", "mypy", "pylint"] if not find_spec(module)
++    module for module in ["ansible", "black"] if not find_spec(module)
  ]
  if missing:
-@@ -32,18 +32,6 @@ def pytest_configure(config: pytest.Conf
+     pytest.exit(
+@@ -30,23 +30,6 @@
      """Ensure we run preparation only on master thread when running in parallel."""
      if is_help_option_present(config):
          return
 -    if is_master(config):
+-        # linter should be able de detect and convert some deprecation warnings
+-        # into validation errors but during testing we disable this to avoid
+-        # unnecessary noise. Still, we might want to enable it for particular
+-        # tests, for testing our ability to detect deprecations.
+-        os.environ["ANSIBLE_DEPRECATION_WARNINGS"] = "False"
 -        # we need to be sure that we have the requirements installed as some tests
 -        # might depend on these. This approach is compatible with GHA caching.
 -        try:
@@ -33,11 +44,9 @@ Index: ansible-lint/conftest.py
  
  
  def is_help_option_present(config: pytest.Config) -> bool:
-Index: ansible-lint/test/test_schemas.py
-===================================================================
---- ansible-lint.orig/test/test_schemas.py
-+++ ansible-lint/test/test_schemas.py
-@@ -20,9 +20,6 @@ from ansiblelint.schemas.__main__ import
+--- a/test/test_schemas.py
++++ b/test/test_schemas.py
+@@ -20,9 +20,6 @@
  from ansiblelint.schemas.main import validate_file_schema
  
  schema_path = Path(schema_module).parent
@@ -46,4 +55,4 @@ Index: ansible-lint/test/test_schemas.py
 -)
  
  
- def urlopen_side_effect(*_args: Any, **kwargs: Any) -> DEFAULT:
+ def urlopen_side_effect(*_args: Any, **kwargs: Any) -> Any:

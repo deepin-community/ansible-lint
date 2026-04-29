@@ -1,0 +1,62 @@
+Description: Skip tests that fail when path contains a `+`.
+Author: Lee Garrett <debian@rocketjump.eu>
+Bug: https://github.com/ansible/ansible-lint/issues/4700
+Last-Update: 2025-07-28
+---
+This patch header follows DEP-3: http://dep.debian.net/deps/dep3/
+--- a/test/rules/test_syntax_check.py
++++ b/test/rules/test_syntax_check.py
+@@ -9,6 +9,7 @@
+ from ansiblelint.runner import Runner
+ 
+ 
++@pytest.mark.skip(reason="This test is broken when run from a dir containing a `+`.")
+ @pytest.mark.parametrize(
+     ("filename", "expected_results"),
+     (
+@@ -91,6 +92,7 @@
+     assert not result
+ 
+ 
++@pytest.mark.skip(reason="This test is broken when run from a dir containing a `+`.")
+ def test_syntax_check_role(default_rules_collection: RulesCollection) -> None:
+     """Validate syntax check of a broken role."""
+     lintable = Lintable("examples/playbooks/roles/invalid_due_syntax", kind="role")
+--- a/test/test_import_playbook.py
++++ b/test/test_import_playbook.py
+@@ -1,5 +1,7 @@
+ """Test ability to import playbooks."""
+ 
++import pytest
++
+ from ansiblelint.rules import RulesCollection
+ from ansiblelint.runner import Runner
+ 
+@@ -31,6 +33,7 @@
+     assert len(results) == 0
+ 
+ 
++@pytest.mark.skip(reason="This test is broken when run from a dir containing a `+`.")
+ def test_import_playbook_invalid(
+     default_rules_collection: RulesCollection,
+ ) -> None:
+--- a/test/test_runner.py
++++ b/test/test_runner.py
+@@ -178,6 +178,7 @@
+     assert len(run2) == 0
+ 
+ 
++@pytest.mark.skip(reason="This test is broken when run from a dir containing a `+`.")
+ @pytest.mark.parametrize(
+     ("filename", "failures", "checked_files_no"),
+     (
+--- a/test/test_import_tasks.py
++++ b/test/test_import_tasks.py
+@@ -6,6 +6,7 @@
+ from ansiblelint.runner import Runner
+ 
+ 
++@pytest.mark.skip(reason="This test is broken when run from a dir containing a `+`.")
+ @pytest.mark.parametrize(
+     ("playbook_path", "lintable_count", "match_count"),
+     (

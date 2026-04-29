@@ -27,7 +27,7 @@ if TYPE_CHECKING:
 _logger = logging.getLogger(__name__)
 
 
-class TaskNoLocalAction(AnsibleLintRule, TransformMixin):
+class TaskNoLocalActionRule(AnsibleLintRule, TransformMixin):
     """Do not use 'local_action', use 'delegate_to: localhost'."""
 
     id = "deprecated-local-action"
@@ -35,7 +35,7 @@ class TaskNoLocalAction(AnsibleLintRule, TransformMixin):
     needs_raw_task = True
     severity = "MEDIUM"
     tags = ["deprecations"]
-    version_added = "v4.0.0"
+    version_changed = "4.0.0"
 
     def matchtask(
         self,
@@ -67,7 +67,7 @@ class TaskNoLocalAction(AnsibleLintRule, TransformMixin):
                         module_name, module_value = v.split(" ", 1)
                         target_task[module_name] = module_value
                         target_task["delegate_to"] = "localhost"
-                    else:
+                    else:  # pragma: no cover
                         _logger.debug(
                             "Ignored unexpected data inside %s transform.",
                             self.id,

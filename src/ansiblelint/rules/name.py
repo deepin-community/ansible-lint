@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import re
 import sys
+from collections.abc import MutableMapping
 from typing import TYPE_CHECKING, Any
 
 import wcmatch.pathlib
 import wcmatch.wcmatch
 
-from ansiblelint.constants import LINE_NUMBER_KEY
 from ansiblelint.file_utils import Lintable
 from ansiblelint.rules import AnsibleLintRule, TransformMixin
 
@@ -31,7 +31,7 @@ class NameRule(AnsibleLintRule, TransformMixin):
     )
     severity = "MEDIUM"
     tags = ["idiom"]
-    version_added = "v6.9.1 (last update)"
+    version_changed = "6.9.1"
     _re_templated_inside = re.compile(r".*\{\{.*\}\}.*\w.*$")
     _ids = {
         "name[play]": "All plays should be named.",
@@ -46,22 +46,22 @@ class NameRule(AnsibleLintRule, TransformMixin):
         results: list[MatchError] = []
         if file.kind != "playbook":
             return []
-        if file.failed():
+        if file.failed():  # pragma: no cover
             return results
         if "name" not in data:
             return [
                 self.create_matcherror(
                     message="All plays should be named.",
-                    lineno=data[LINE_NUMBER_KEY],
                     tag="name[play]",
                     filename=file,
+                    data=data,
                 ),
             ]
         results.extend(
             self._check_name(
                 data["name"],
                 lintable=file,
-                lineno=data[LINE_NUMBER_KEY],
+                data=data,
             ),
         )
         return results
@@ -72,14 +72,14 @@ class NameRule(AnsibleLintRule, TransformMixin):
         file: Lintable | None = None,
     ) -> list[MatchError]:
         results: list[MatchError] = []
-        if file and file.failed():
+        if file and file.failed():  # pragma: no cover
             return results
         name = task.get("name")
         if not name:
             results.append(
                 self.create_matcherror(
                     message="All tasks should be named.",
-                    lineno=task[LINE_NUMBER_KEY],
+                    lineno=task.line,
                     tag="name[missing]",
                     filename=file,
                 ),
@@ -89,7 +89,7 @@ class NameRule(AnsibleLintRule, TransformMixin):
                 self._prefix_check(
                     name,
                     lintable=file,
-                    lineno=task[LINE_NUMBER_KEY],
+                    lineno=task.line,
                 ),
             )
 
@@ -111,16 +111,13 @@ class NameRule(AnsibleLintRule, TransformMixin):
                 self._check_name(
                     effective_name,
                     lintable=lintable,
-                    lineno=lineno,
+                    data=lintable.data,
                 ),
             )
         return results
 
     def _check_name(
-        self,
-        name: str,
-        lintable: Lintable | None,
-        lineno: int,
+        self, name: str, lintable: Lintable | None, data: Any
     ) -> list[MatchError]:
         # This rules applies only to languages that do have uppercase and
         # lowercase letter, so we ignore anything else. On Unicode isupper()
@@ -146,7 +143,7 @@ class NameRule(AnsibleLintRule, TransformMixin):
                         results.append(
                             self.create_matcherror(
                                 message=f"Task name should start with '{prefix}'.",
-                                lineno=lineno,
+                                data=data,
                                 tag="name[prefix]",
                                 filename=lintable,
                             ),
@@ -163,7 +160,7 @@ class NameRule(AnsibleLintRule, TransformMixin):
             results.append(
                 self.create_matcherror(
                     message="All names should start with an uppercase letter.",
-                    lineno=lineno,
+                    data=name,
                     tag="name[casing]",
                     filename=lintable,
                 ),
@@ -172,7 +169,7 @@ class NameRule(AnsibleLintRule, TransformMixin):
             results.append(
                 self.create_matcherror(
                     message="Jinja templates should only be at the end of 'name'",
-                    lineno=lineno,
+                    data=name,
                     tag="name[template]",
                     filename=lintable,
                 ),
@@ -234,7 +231,7 @@ class NameRule(AnsibleLintRule, TransformMixin):
             if orig_task_name:
                 updated_task_name = update_task_name(orig_task_name)
                 for item in data:
-                    if isinstance(item, dict) and "tasks" in item:
+                    if isinstance(item, MutableMapping) and "tasks" in item:
                         for task in item["tasks"]:
                             # We want to rewrite task names in the notify keyword, but
                             # if there isn't a notify section, there's nothing to do.

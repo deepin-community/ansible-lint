@@ -21,19 +21,23 @@ from typing import TYPE_CHECKING, Any
 
 from ansible.errors import AnsibleError
 from ansible.parsing.splitter import split_args
-from ansible.parsing.yaml.constructor import AnsibleMapping
 from ansible.plugins.loader import add_all_plugin_dirs
 from ansible_compat.runtime import AnsibleWarning
 
 import ansiblelint.skip_utils
 import ansiblelint.utils
-from ansiblelint.app import App, get_app
 from ansiblelint.constants import States
 from ansiblelint.errors import LintWarning, MatchError, WarnSource
-from ansiblelint.file_utils import Lintable, expand_dirs_in_lintables
+from ansiblelint.file_utils import (
+    Lintable,
+    expand_dirs_in_lintables,
+    expand_paths_vars,
+    normpath,
+)
 from ansiblelint.logger import timed_info
 from ansiblelint.rules.syntax_check import OUTPUT_PATTERNS
 from ansiblelint.text import strip_ansi_escape
+from ansiblelint.types import AnsibleJSON, AnsibleMapping
 from ansiblelint.utils import (
     PLAYBOOK_DIR,
     HandleChildren,
@@ -45,6 +49,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Generator
 
     from ansiblelint._internal.rules import BaseRule
+    from ansiblelint.app import App
     from ansiblelint.config import Options
     from ansiblelint.constants import FileType
     from ansiblelint.rules import RulesCollection
@@ -106,12 +111,12 @@ class Runner:
             checked_files = set()
         self.checked_files = checked_files
 
-        self.app = get_app(cached=True)
+        self.app = self.rules.app
 
     def _update_exclude_paths(self, exclude_paths: list[str]) -> None:
         if exclude_paths:
             # These will be (potentially) relative paths
-            paths = ansiblelint.file_utils.expand_paths_vars(exclude_paths)
+            paths = expand_paths_vars(exclude_paths)
             # Since ansiblelint.utils.find_children returns absolute paths,
             # and the list of files we create in `Runner.run` can contain both
             # relative and absolute paths, we need to cover both bases.
@@ -166,10 +171,9 @@ class Runner:
                 # For the moment we are ignoring deprecation warnings as Ansible
                 # modules outside current content can generate them and user
                 # might not be able to do anything about them.
-                if warn.category is DeprecationWarning:
+                if warn.category is DeprecationWarning:  # pragma: no cover
                     continue
                 if warn.category is LintWarning:
-                    filename: None | Lintable = None
                     if isinstance(warn.source, WarnSource):
                         match = MatchError(
                             message=warn.source.message or warn.category.__name__,
@@ -179,13 +183,12 @@ class Runner:
                             lineno=warn.source.lineno,
                         )
                     else:
-                        filename = warn.source
                         match = MatchError(
                             message=(
                                 warn.message if isinstance(warn.message, str) else "?"
                             ),
                             rule=self.rules["warning"],
-                            lintable=Lintable(str(filename)),
+                            lintable=Lintable(str(warn.source)),
                         )
                     matches.append(match)
                     continue
@@ -267,17 +270,33 @@ class Runner:
         # do our processing only when ansible syntax check passed in order
         # to avoid causing runtime exceptions. Our processing is not as
         # resilient to be able process garbage.
-        matches.extend(self._emit_matches(files))
-
+        matches.extend(
+            self._emit_matches([file for file in files if not file.failed()])
+        )
+        # mark failed failed lintables as stop processing in order to avoid
+        # duplicated errors from further processing of the other rules
+        for match in matches:
+            if match.lintable.failed():
+                match.lintable.stop_processing = True
+                # Look into making lintables singletons to avoid having to update them
+                for lintable in self.lintables:
+                    if lintable == match.lintable:
+                        lintable.stop_processing = True
+                        break
         # remove duplicates from files list
-        files = [value for n, value in enumerate(files) if value not in files[:n]]
+        files = list(dict.fromkeys(files))
 
         for file in self.lintables:
-            if file in self.checked_files or not file.kind or file.failed():
+            if (
+                file in self.checked_files
+                or not file.kind
+                or file.failed()
+                or file.stop_processing
+            ):
                 continue
             _logger.debug(
                 "Examining %s of type %s",
-                ansiblelint.file_utils.normpath(file.path),
+                normpath(file.path),
                 file.kind,
             )
 
@@ -293,7 +312,7 @@ class Runner:
 
         return sorted(set(matches))
 
-    # pylint: disable=too-many-locals
+    # pylint: disable=too-many-locals,too-many-statements
     def _get_ansible_syntax_check_matches(
         self,
         lintable: Lintable,
@@ -325,11 +344,11 @@ class Runner:
     - ansible.builtin.import_role:
         name: {lintable.path.expanduser()!s}
 """
-                # pylint: disable=consider-using-with
                 fh = tempfile.NamedTemporaryFile(  # noqa: SIM115
                     mode="w",
                     suffix=".yml",
                     prefix="play",
+                    encoding="utf-8",
                 )
                 fh.write(playbook_text)
                 fh.flush()
@@ -341,9 +360,10 @@ class Runner:
             # [WARNING]: provided hosts list is empty, only localhost is available. Note that the implicit localhost does not match 'all'
             cmd = [
                 "ansible-playbook",
-                "-i",
-                "localhost,",
                 "--syntax-check",
+                "-vv",  # needed or ansible-core will fail to mention the loaded file with includes:
+                # statically imported: /foo/bar/malformed.yml
+                # ERROR! A malformed block was encountered while loading a block. ..."
                 playbook_path,
             ]
             if app.options.extra_vars:
@@ -379,7 +399,7 @@ class Runner:
             stdout = strip_ansi_escape(run.stdout)
             if stderr:
                 details = stderr
-                if stdout:
+                if stdout:  # pragma: no cover
                     details += "\n" + stdout
             else:
                 details = stdout
@@ -431,6 +451,7 @@ class Runner:
                     f"Unexpected error code {run.returncode} from "
                     f"execution of: {' '.join(cmd)}"
                 )
+                filename.failed()
                 results.append(
                     MatchError(
                         message=message,
@@ -460,6 +481,8 @@ class Runner:
         while visited != self.lintables:
             for lintable in self.lintables - visited:
                 visited.add(lintable)
+                if lintable.failed():
+                    continue
                 if not lintable.path.exists():
                     continue
                 try:
@@ -482,11 +505,12 @@ class Runner:
 
     def find_children(self, lintable: Lintable) -> list[Lintable]:
         """Traverse children of a single file or folder."""
+        playbook_ds: AnsibleJSON
         if not lintable.path.exists():
             return []
         playbook_dir = str(lintable.path.parent)
         ansiblelint.utils.set_collections_basedir(lintable.path.parent)
-        add_all_plugin_dirs(playbook_dir or ".")
+        add_all_plugin_dirs(playbook_dir or ".")  # type: ignore[no-untyped-call]
         if lintable.kind == "role":
             playbook_ds = AnsibleMapping({"roles": [{"role": str(lintable.path)}]})
         elif lintable.kind == "plugin":
@@ -497,9 +521,9 @@ class Runner:
             try:
                 playbook_ds = ansiblelint.utils.parse_yaml_from_file(str(lintable.path))
             except AnsibleError as exc:
-                msg = f"Loading {lintable.filename} caused an {type(exc).__name__} exception: {exc}, file was ignored."
-                logging.exception(msg)
-                return []
+                raise MatchError(
+                    lintable=lintable, rule=self.rules["load-failure"]
+                ) from exc
         results = []
         # playbook_ds can be an AnsibleUnicode string, which we consider invalid
         if isinstance(playbook_ds, str):
@@ -520,7 +544,7 @@ class Runner:
                 # Repair incorrect paths obtained when old syntax was used, like:
                 # - include: simpletask.yml tags=nginx
                 valid_tokens = []
-                for token in split_args(path_str):
+                for token in split_args(path_str):  # type: ignore[no-untyped-call]
                     if "=" in token:
                         break
                     valid_tokens.append(token)
@@ -564,7 +588,7 @@ class Runner:
             "ansible.builtin.import_tasks": handlers.include_children,
         }
         (k, v) = item
-        add_all_plugin_dirs(str(basedir.resolve()))
+        add_all_plugin_dirs(str(basedir.resolve()))  # type: ignore[no-untyped-call]
 
         if k in delegate_map and v:
             v = template(
@@ -595,6 +619,7 @@ class Runner:
         examples.file = NamedTemporaryFile(  # noqa: SIM115
             mode="w+",
             suffix=f"_{lintable.path.name}.yaml",
+            encoding="utf-8",
         )
         examples.file.write(content)
         examples.file.flush()
@@ -626,14 +651,14 @@ def threads() -> int:
     if os.path.exists(cpu_max_fname):
         # cgroup v2
         # https://www.kernel.org/doc/html/latest/admin-guide/cgroup-v2.html
-        with open(cpu_max_fname, encoding="utf-8") as fh:
+        with open(cpu_max_fname, encoding="utf-8") as fh:  # pragma: no cover
             cpu_quota_us, cpu_period_us = fh.read().strip().split()
     elif os.path.exists(cfs_quota_fname) and os.path.exists(cfs_period_fname):
         # cgroup v1
         # https://www.kernel.org/doc/html/latest/scheduler/sched-bwc.html#management
-        with open(cfs_quota_fname, encoding="utf-8") as fh:
+        with open(cfs_quota_fname, encoding="utf-8") as fh:  # pragma: no cover
             cpu_quota_us = fh.read().strip()
-        with open(cfs_period_fname, encoding="utf-8") as fh:
+        with open(cfs_period_fname, encoding="utf-8") as fh:  # pragma: no cover
             cpu_period_us = fh.read().strip()
     else:
         # No Cgroup CPU bandwidth limit (e.g. non-Linux platform)
