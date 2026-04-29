@@ -1,0 +1,79 @@
+Description: Remove version check at runtime
+Author: Samuel Henrique <samueloph@debian.org>
+Forwarded: not-needed
+Index: ansible-lint/src/ansiblelint/config.py
+===================================================================
+--- ansible-lint.orig/src/ansiblelint/config.py
++++ ansible-lint/src/ansiblelint/config.py
+@@ -297,56 +297,5 @@ def get_deps_versions() -> dict[str, Ver
+ 
+ 
+ def get_version_warning() -> str:
+-    """Display warning if current version is outdated."""
+-    # 0.1dev1 is special fallback version
+-    if __version__ == "0.1.dev1":  # pragma: no cover
+-        return ""
+-    pip = guess_install_method()
+-    # If we do not know how to upgrade, we do not want to show any warnings
+-    # about version.
+-    if not pip:
+-        return ""
+-
+-    msg = ""
+-    data = {}
+-    current_version = Version(__version__)
+-
+-    if not os.path.exists(CACHE_DIR):  # pragma: no cover
+-        os.makedirs(CACHE_DIR)
+-    cache_file = f"{CACHE_DIR}/latest.json"
+-    refresh = True
+-    if os.path.exists(cache_file):
+-        age = time.time() - os.path.getmtime(cache_file)
+-        if age < 24 * 60 * 60:
+-            refresh = False
+-        with open(cache_file, encoding="utf-8") as f:
+-            data = json.load(f)
+-
+-    if not options.offline and (refresh or not data):
+-        release_url = (
+-            "https://api.github.com/repos/ansible/ansible-lint/releases/latest"
+-        )
+-        try:
+-            with urllib.request.urlopen(release_url) as url:  # noqa: S310
+-                data = json.load(url)
+-                with open(cache_file, "w", encoding="utf-8") as f:
+-                    json.dump(data, f)
+-        except (URLError, HTTPError, HTTPException) as exc:  # pragma: no cover
+-            _logger.debug(
+-                "Unable to fetch latest version from %s due to: %s",
+-                release_url,
+-                exc,
+-            )
+-            return ""
+-
+-    if data:
+-        html_url = data["html_url"]
+-        new_version = Version(data["tag_name"][1:])  # removing v prefix from tag
+-
+-        if current_version > new_version:
+-            msg = "[dim]You are using a pre-release version of ansible-lint.[/]"
+-        elif current_version < new_version:
+-            msg = f"""[warning]A new release of ansible-lint is available: [red]{current_version}[/] → [green][link={html_url}]{new_version}[/][/][/]"""
+-            msg += f" Upgrade by running: [info]{pip}[/]"
+-
+-    return msg
++    """Patched on Debian to not download release information from third parties"""
++    return ""
+Index: ansible-lint/test/test_main.py
+===================================================================
+--- ansible-lint.orig/test/test_main.py
++++ ansible-lint/test/test_main.py
+@@ -52,7 +52,7 @@ def test_call_from_outside_venv(expected
+     warning_found = "PATH altered to include" in proc.stderr
+     assert warning_found is expected_warning
+ 
+-
++@pytest.mark.skip(reason="This functionality is disabled on Debian")
+ @pytest.mark.parametrize(
+     ("ver_diff", "found", "check", "outlen"),
+     (

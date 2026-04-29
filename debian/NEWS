@@ -1,0 +1,12 @@
+ansible-lint (5.4.0-1) unstable; urgency=medium
+
+  Starting with version 5.x, ansible-lint will try and download
+  the roles and collections found in requirements.yml (if it exists)
+  using ansible-galaxy.
+  The download contents will be placed into a temporary folder.
+  Without this, ansible-lint would error out for that given project.
+
+  If you want to disable this behavior, you can pass "--offline" to the CLI
+  commands or even set "offline: false" in ansible-lint's configuration.
+
+ -- Samuel Henrique <samueloph@debian.org>  Sat, 26 Feb 2022 00:30:15 +0000

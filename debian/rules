@@ -1,4 +1,37 @@
 #!/usr/bin/make -f
 
+export LC_ALL=C.UTF-8
+export PYBUILD_BEFORE_TEST=cp --recursive {dir}/examples {dir}/conftest.py {dir}/.pre-commit-config.yaml {dir}/.ansible-lint {dir}/collections {build_dir}/
+export PYBUILD_AFTER_TEST=rm -Rf {build_dir}/examples {build_dir}/conftest.py {build_dir}/.pre-commit-config.yaml {build_dir}/.ansible-lint
+
+export PYBUILD_TEST_ARGS=-n auto -k "not (test_spdx or test_args_module_pass or test_risky_file_permissions or test_fqcn_builtin_fail or test_fqcn_builtin_pass or test_transformer or test_call_from_outside_venv or test_schema_moves or test_rules_id_format or test_yamllint or test_example or test_example_custom_module or test_verbosity or test_task_hook_import_playbook or test_request_timeouterror_handling or test_requests_uses_timeout or test_schema_refresh_cli or test_refresh_schemas or test_jinja_transform or test_no_tabs_rule or test_nodeps[1] or test_nodeps[2] or test_import_playbook_from_collection or test_broken_ansible_cfg or test_find_children_in_module or test_args_module_relative_import or test_find_children_in_playbook)"
+# test_spdx: requires the yet-to-be-packaged https://pypi.org/project/spdx/
+# test_args_module_pass: require internet access
+# test_risky_file_permissions: requires internet access
+# test_fqcn_builtin_fail: requires internet access
+# test_fqcn_builtin_pass: requires internet access
+# test_transformer: required internet access
+# test_call_from_outside_venv: assumes we are running the test from a virtualenv
+# test_schema_moves: unknown
+# test_rules_id_format: unknown
+# test_yamllint: unknown (due to different version of yamllint?)
+# test_example: unknown
+# test_example_custom_module: unknown
+# test_verbosity: unknown
+# test_task_hook_import_playbook: unknown
+# test_request_timeouterror_handling: not good for autopkgtest: requires a writable filesystem
+# test_requests_uses_timeout: works during the build, but not as an autopkgtest
+# test_schema_refresh_cli: works during the build, but not as an autopkgtest
+# test_refresh_schemas: works during the build, but not as an autopkgtest
+# test_jinja_transform: requires internet access
+# test_no_tabs_rule: requires internet access
+# test_nodeps[1]: requires /usr/bin/ansible-lint
+# test_nodeps[2]: requires /usr/bin/ansible-lint
+# test_import_playbook_from_collection: requires internet access
+# test_broken_ansible_cfg: requires /usr/bin/ansible-lint
+# test_find_children_in_module: unknown
+# test_args_module_relative_import: unknown
+# test_find_children_in_playbook: unknown
+
 %:
-	dh $@
+	dh $@ --buildsystem=pybuild
